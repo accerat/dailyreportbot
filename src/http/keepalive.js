@@ -18,10 +18,11 @@ export function startKeepAlive(client) {
       guilds: client.guilds?.cache?.size ?? 0,
     };
 
-    // ✅ Allow free-plan monitors to hit HEAD /
-    if (req.method === 'HEAD' && path === '/') {
-      res.writeHead(200);
-      return res.end();
+    // ✅ Return 200 for both HEAD / and GET /
+    if ((req.method === 'HEAD' || req.method === 'GET') && path === '/') {
+      // keep it minimal; no secrets exposed
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      return res.end('ok');
     }
 
     // Simple text metrics
