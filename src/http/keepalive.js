@@ -1,3 +1,48 @@
+import http from 'http';
 
-import { createServer } from 'http'; import { URL } from 'url';
-export function startKeepAlive(client){ const SECRET=process.env.UPTIME_SECRET; const s=createServer(async(req,res)=>{ try{ const url=new URL(req.url||'/','http://localhost'); const p=url.pathname; if(SECRET&&(p==='/health'||p==='/')){ res.statusCode=404; res.end('not found'); return; } if(p==='/health'||(SECRET&&p===`/health/${SECRET}`)||p==='/'){ const status=client?.ws?.status??'unknown'; const ping=client?.ws?.ping??null; const guilds=client?.guilds?.cache?.size??0; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({ok:true, ws_status:status, ping_ms:ping, guilds})); return;} if(p==='/metrics'){ const status=client?.ws?.status??'unknown'; const ping=client?.ws?.ping??'NaN'; const guilds=client?.guilds?.cache?.size??0; res.setHeader('Content-Type','text/plain'); res.end(`ws_status=${status} ping_ms=${ping} guilds=${guilds}`); return;} res.statusCode=404; res.end('not found'); }catch{ res.statusCode=500; res.end('error'); } }); return s; }
+export function startKeepAlive(client) {
+  const secret = process.env.UPTIME_SECRET;
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const path = url.pathname;
+
+    const sendJSON = (code, obj) => {
+      res.writeHead(code, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(obj));
+    };
+
+    const okPayload = {
+      ok: true,
+      ws_status: client.ws?.status ?? null,
+      ping_ms: client.ws?.ping ?? null,
+      guilds: client.guilds?.cache?.size ?? 0,
+    };
+
+    // ✅ Allow free-plan monitors to hit HEAD /
+    if (req.method === 'HEAD' && path === '/') {
+      res.writeHead(200);
+      return res.end();
+    }
+
+    // Simple text metrics
+    if (req.method === 'GET' && path === '/metrics') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      return res.end(
+        `ok=1 ws=${client.ws?.status ?? ''} ping=${client.ws?.ping ?? ''} guilds=${client.guilds?.cache?.size ?? 0}`
+      );
+    }
+
+    // JSON health, with optional secret gating
+    if (req.method === 'GET' && (path === '/health' || (secret && path === `/health/${secret}`))) {
+      if (secret && path !== `/health/${secret}`) {
+        res.writeHead(404);
+        return res.end();
+      }
+      return sendJSON(200, okPayload);
+    }
+
+    // everything else
+    res.writeHead(404);
+    res.end();
+  });
+}
