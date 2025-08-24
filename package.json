@@ -1,0 +1,17 @@
+{
+  "name": "dailyreportbot-v2-js",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "register": "node src/scripts/register-commands.js",
+    "migrate": "node src/scripts/migrate.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "luxon": "^3.5.0",
+    "node-cron": "^3.0.3"
+  }
+}
