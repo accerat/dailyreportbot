@@ -41,6 +41,13 @@ export function startKeepAlive(client) {
       }
       return sendJSON(200, okPayload);
     }
+// HEAD /health (and /health/<secret> if set)
+if (req.method === 'HEAD' && (path === '/health' || (secret && path === `/health/${secret}`))) {
+  if (secret && path !== `/health/${secret}`) {
+    res.writeHead(404); return res.end();
+  }
+  res.writeHead(200); return res.end();
+}
 
     // everything else
     res.writeHead(404);
