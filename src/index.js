@@ -82,7 +82,7 @@ client.on(Events.InteractionCreate, async (i) => {
 wireInteractions(client);
 
 // Keepalive HTTP server (for UptimeRobot)
-const port = process.env.PORT ? Number(process.env.PORT) : 10000;
+const port = process.env.PORT ? Number(process.env.PORT) : 14522;
 startKeepAlive(client).listen(port, () => {
   console.log(`HTTP keepalive listening on ${port}`);
 });
