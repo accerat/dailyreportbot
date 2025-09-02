@@ -15,6 +15,7 @@ import './jobs/reminders.js';
 import './jobs/noonSummary.js';
 import './jobs/midnightMissed.js';
 
+
 // Admin command modules
 import * as adminSummary from './commands/adminSummaryNow.js';
 import * as adminReminders from './commands/adminRemindersNow.js';
@@ -40,6 +41,7 @@ const commandMap = new Map([
   [adminBackfill.data.name, adminBackfill],
   [adminSetForums.data.name, adminSetForums],
   [adminSetProjectCategory.data.name, adminSetProjectCategory],
+
 ]);
 
 client.on(Events.InteractionCreate, async (interaction) => {

@@ -121,8 +121,43 @@ export async function updateReportTriggers(reportId, triggers, authorUserId){
       });
     }
   }
-
   await save(s);
   return r;
 }
+// v4 add — project status helpers (top-level)
+export async function setProjectStatusByThread(threadId, status) {
+  const s = await load();
+  const p = s.projects.find(x => x.thread_channel_id === threadId);
+  if (!p) return null;
+  p.status = String(status || '').trim().toLowerCase();
+  await save(s);
+  return p;
+}
+
+export async function closeProjectByThread(threadId, { reason, closedBy } = {}) {
+  const s = await load();
+  const p = s.projects.find(x => x.thread_channel_id === threadId);
+  if (!p) return null;
+  p.is_closed = true;
+  p.closed_reason = reason || null;
+  p.closed_by = closedBy || null;
+  p.closed_at = new Date().toISOString();
+  if (!p.status || p.status === 'open') p.status = 'closed';
+  await save(s);
+  return p;
+}
+
+export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
+  const s = await load();
+  const p = s.projects.find(x => x.thread_channel_id === threadId);
+  if (!p) return null;
+  p.is_closed = false;
+  p.closed_reason = null;
+  p.closed_by = reopenedBy || null;
+  p.closed_at = null;
+  if (p.status === 'closed' || !p.status) p.status = 'open';
+  await save(s);
+  return p;
+}
+
  // end added more exports
