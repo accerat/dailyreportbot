@@ -93,7 +93,7 @@ function buildStatusRow(project) {
   );
 }
 
-// Project status / close controls (rendered as the 3rd row on the panel)
+// Quick status/close row shown on the main panel
 function projectControlsRow(project) {
   const status = String(project.status || 'open').toLowerCase();
   const isClosed = !!project.is_closed;
@@ -161,7 +161,7 @@ export function wireInteractions(client) {
       new ButtonBuilder().setCustomId(`panel:photos:${project.id}`).setLabel('Add Photos').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Show Status').setStyle(ButtonStyle.Secondary),
     );
-    // Row 2: remove Pause/Resume; keep only Change Foreman
+    // Row 2: only Change Foreman
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`panel:foreman:${project.id}`)
@@ -170,88 +170,119 @@ export function wireInteractions(client) {
     );
 
     const row3 = projectControlsRow(project);
-    await msg.reply({ embeds: [embed], components: [row1, row2, row3] });
+
+    try {
+      await msg.reply({ embeds: [embed], components: [row1, row2, row3] });
+    } catch {
+      // Fallback if reply fails (e.g., missing perms)
+      await msg.channel.send({ embeds: [embed], components: [row1, row2, row3] });
+    }
   }
 
+  // ---- Robust mention handler ----
   client.on(Events.MessageCreate, async (msg) => {
-    if (!client.user) return;
-    if (!msg.mentions.users.has(client.user.id) || msg.author.bot) return;
+    try {
+      if (!client.user) return;
+      if (msg.author?.bot) return;
 
-    // If already linked, show panel
-    const existing = await store.getProjectByThread(msg.channelId);
-    if (existing) return showPanel(msg, existing);
+      // Consider @user mention, @member mention, or replying to the bot
+      const mentioned =
+        msg.mentions?.users?.has(client.user.id) ||
+        msg.mentions?.members?.has(client.user.id) ||
+        msg.mentions?.repliedUser?.id === client.user.id;
 
-    // Must be in a forum thread
-    const channel = msg.channel;
-    const isThread = typeof channel.isThread === 'function'
-      ? channel.isThread()
-      : [10, 11, 12].includes(channel.type);
-    if (!isThread) {
-      const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
-      const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
-      if (isAdminSender) {
-        return msg.reply('This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.');
+      if (!mentioned) return;
+
+      // If already linked, show panel immediately
+      const existing = await store.getProjectByThread(msg.channelId);
+      if (existing) return showPanel(msg, existing);
+
+      // Must be in a forum thread
+      const channel = msg.channel;
+      const isThread = typeof channel.isThread === 'function'
+        ? channel.isThread()
+        : [10, 11, 12].includes(channel.type);
+      if (!isThread) {
+        const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
+        const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
+        if (isAdminSender) {
+          try {
+            return await msg.reply('This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.');
+          } catch {
+            return await msg.channel.send('This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.');
+          }
+        }
+        return;
       }
-      return;
-    }
 
-    // Identify forum and parent category
-    const forum = channel.parent ?? null;
-    const forumId = forum?.id ?? null;
-    const categoryId = forum?.parentId ?? null;
+      // Identify forum and parent category
+      const forum = channel.parent ?? null;
+      const forumId = forum?.id ?? null;
+      const categoryId = forum?.parentId ?? null;
 
-    // Settings: category mode and/or legacy forums
-    const settings = await store.getSettings();
-    const inProjectCategory = !!(settings.project_category_id && categoryId === settings.project_category_id);
-    const inKnownForum =
-      (settings.non_uhc_forum_id && forumId === settings.non_uhc_forum_id) ||
-      (settings.uhc_forum_id && forumId === settings.uhc_forum_id);
+      // Settings: category mode and/or legacy forums
+      const settings = await store.getSettings();
+      const inProjectCategory = !!(settings.project_category_id && categoryId === settings.project_category_id);
+      const inKnownForum =
+        (settings.non_uhc_forum_id && forumId === settings.non_uhc_forum_id) ||
+        (settings.uhc_forum_id && forumId === settings.uhc_forum_id);
 
-    if (!inProjectCategory && !inKnownForum) {
-      const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
-      const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
-      if (isAdminSender) {
-        return msg.reply('No project container configured. Run **/admin-set-project-category** (recommended) or **/admin-set-forums** first.');
+      if (!inProjectCategory && !inKnownForum) {
+        const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
+        const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
+        if (isAdminSender) {
+          try {
+            return await msg.reply('No project container configured. Run **/admin-set-project-category** (recommended) or **/admin-set-forums** first.');
+          } catch {
+            return await msg.channel.send('No project container configured. Run **/admin-set-project-category** (recommended) or **/admin-set-forums** first.');
+          }
+        }
+        return;
       }
-      return;
+
+      // Determine type
+      const isUhcByForum = settings.uhc_forum_id && forumId === settings.uhc_forum_id;
+      const isUhcByName  = (forum?.name?.toLowerCase() || '').includes('uhc');
+      const type = (isUhcByForum || isUhcByName) ? 'uhc' : 'non_uhc';
+
+      // Link project from thread title
+      const project = await store.upsertProject({
+        name: channel.name,
+        thread_channel_id: channel.id,
+        foreman_user_id: null,
+        reminder_start_ct: '08:00',
+        start_date: null,
+        paused: false,
+        reminder_active: true,
+        track_in_summary: true,
+        type
+      });
+
+      // Onboarding UI
+      const embed = new EmbedBuilder()
+        .setTitle(`Set up: ${project.name}`)
+        .setDescription('Pick a foreman and set the start date/time for reminders (CST). When finished, press **Finish Setup**.');
+
+      const row1 = new ActionRowBuilder().addComponents(
+        new UserSelectMenuBuilder()
+          .setCustomId(`onb:foreman:${project.id}`)
+          .setPlaceholder('Select foreman')
+          .setMinValues(1)
+          .setMaxValues(1)
+      );
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`onb:start:${project.id}`).setLabel('Set Start Date & Time').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`onb:done:${project.id}`).setLabel('Finish Setup').setStyle(ButtonStyle.Success),
+      );
+
+      try {
+        await msg.reply({ embeds: [embed], components: [row1, row2] });
+      } catch {
+        await msg.channel.send({ embeds: [embed], components: [row1, row2] });
+      }
+    } catch (err) {
+      console.error('MessageCreate mention handler error:', err);
     }
-
-    // Determine type
-    const isUhcByForum = settings.uhc_forum_id && forumId === settings.uhc_forum_id;
-    const isUhcByName  = (forum?.name?.toLowerCase() || '').includes('uhc');
-    const type = (isUhcByForum || isUhcByName) ? 'uhc' : 'non_uhc';
-
-    // Link project from thread title
-    const project = await store.upsertProject({
-      name: channel.name,
-      thread_channel_id: channel.id,
-      foreman_user_id: null,
-      reminder_start_ct: '08:00',
-      start_date: null,
-      paused: false,
-      reminder_active: true,
-      track_in_summary: true,
-      type
-    });
-
-    // Onboarding UI
-    const embed = new EmbedBuilder()
-      .setTitle(`Set up: ${project.name}`)
-      .setDescription('Pick a foreman and set the start date/time for reminders (CST). When finished, press **Finish Setup**.');
-
-    const row1 = new ActionRowBuilder().addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId(`onb:foreman:${project.id}`)
-        .setPlaceholder('Select foreman')
-        .setMinValues(1)
-        .setMaxValues(1)
-    );
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`onb:start:${project.id}`).setLabel('Set Start Date & Time').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`onb:done:${project.id}`).setLabel('Finish Setup').setStyle(ButtonStyle.Success),
-    );
-
-    await msg.reply({ embeds: [embed], components: [row1, row2] });
   });
 
   client.on(Events.InteractionCreate, async (i) => {
@@ -302,7 +333,55 @@ export function wireInteractions(client) {
 
       // === Panel actions ===
       const parts = (i.customId || '').split(':');
-      if (parts[0] !== 'panel') return;
+      if (parts[0] !== 'panel') {
+        // quick row handlers for proj:*
+        if (i.isButton() && i.customId?.startsWith('proj:')) {
+          const partsProj = i.customId.split(':'); // e.g., proj:status:123:on-hold | proj:close:123
+          const actionProj = partsProj[1];
+          const pid = Number(partsProj[2]);
+          const project = await store.getProjectById(pid);
+          if (!project) {
+            return i.reply({ content: 'Project not found for this thread.', flags: MessageFlags.Ephemeral });
+          }
+
+          if (actionProj === 'status') {
+            const newStatus = String(partsProj[3] || '').trim().toLowerCase();
+            await store.upsertProject({ id: pid, status: newStatus });
+            return i.reply({ content: `Status set to **${newStatus}**.`, flags: MessageFlags.Ephemeral });
+          }
+
+          if (actionProj === 'close') {
+            if (project.is_closed) {
+              return i.reply({ content: 'Project is already closed.', flags: MessageFlags.Ephemeral });
+            }
+            await store.upsertProject({
+              id: pid,
+              is_closed: true,
+              status: project.status && project.status !== 'open' ? project.status : 'closed',
+              closed_by: i.user.id,
+              closed_at: new Date().toISOString(),
+            });
+            return i.reply({ content: '🛑 Project closed.' });
+          }
+
+          if (actionProj === 'reopen') {
+            if (!project.is_closed) {
+              return i.reply({ content: 'Project is not closed.', flags: MessageFlags.Ephemeral });
+            }
+            await store.upsertProject({
+              id: pid,
+              is_closed: false,
+              status: project.status === 'closed' ? 'open' : (project.status || 'open'),
+              closed_reason: null,
+              closed_at: null,
+              reopened_by: i.user.id,
+            });
+            return i.reply({ content: '✅ Project re-opened.' });
+          }
+        }
+        return;
+      }
+
       const action = parts[1];
 
       // New Daily Report — modal with Completion date (prefilled from last report)
@@ -407,52 +486,6 @@ export function wireInteractions(client) {
         }
 
         return i.update({ content: 'Daily report submitted ✅', components: [] });
-      }
-
-      // === Project status / close / reopen button handling (quick row) ===
-      if (i.isButton() && i.customId?.startsWith('proj:')) {
-        const partsProj = i.customId.split(':'); // e.g., proj:status:123:on-hold | proj:close:123
-        const actionProj = partsProj[1];
-        const pid = Number(partsProj[2]);
-        const project = await store.getProjectById(pid);
-        if (!project) {
-          return i.reply({ content: 'Project not found for this thread.', flags: MessageFlags.Ephemeral });
-        }
-
-        if (actionProj === 'status') {
-          const newStatus = String(partsProj[3] || '').trim().toLowerCase();
-          await store.upsertProject({ id: pid, status: newStatus });
-          return i.reply({ content: `Status set to **${newStatus}**.`, flags: MessageFlags.Ephemeral });
-        }
-
-        if (actionProj === 'close') {
-          if (project.is_closed) {
-            return i.reply({ content: 'Project is already closed.', flags: MessageFlags.Ephemeral });
-          }
-          await store.upsertProject({
-            id: pid,
-            is_closed: true,
-            status: project.status && project.status !== 'open' ? project.status : 'closed',
-            closed_by: i.user.id,
-            closed_at: new Date().toISOString(),
-          });
-          return i.reply({ content: '🛑 Project closed.' });
-        }
-
-        if (actionProj === 'reopen') {
-          if (!project.is_closed) {
-            return i.reply({ content: 'Project is not closed.', flags: MessageFlags.Ephemeral });
-          }
-          await store.upsertProject({
-            id: pid,
-            is_closed: false,
-            status: project.status === 'closed' ? 'open' : (project.status || 'open'),
-            closed_reason: null,
-            closed_at: null,
-            reopened_by: i.user.id,
-          });
-          return i.reply({ content: '✅ Project re-opened.' });
-        }
       }
 
       // Clicked: Show Status (opens mini status panel)
