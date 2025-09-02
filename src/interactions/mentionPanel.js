@@ -179,24 +179,22 @@ export function wireInteractions(client) {
     }
   }
 
-  // ---- Robust mention handler ----
+    // ---- Mention handler (restore robust, intent-free detection) ----
   client.on(Events.MessageCreate, async (msg) => {
     try {
       if (!client.user) return;
       if (msg.author?.bot) return;
 
-      // Consider @user mention, @member mention, or replying to the bot
-            const content = msg.content || '';
- const mentionA = `<@${client.user.id}>`;
-      const mentionB = `<@!${client.user.id}>`; // some clients include '!'
-      const mentioned =
-        msg.mentions?.users?.has(client.user.id) ||
-        msg.mentions?.members?.has(client.user.id) ||
-        msg.mentions?.repliedUser?.id === client.user.id ||
-        content.includes(mentionA) ||
-        content.includes(mentionB);
+      // Use Discord's built-in mention resolver (works without Message Content intent)
+      // This checks actual user mentions and replies, ignores @everyone/@roles.
+      const mentioned = msg.mentions?.has?.(client.user, {
+        ignoreEveryone: true,
+        ignoreRoles: true,
+        ignoreRepliedUser: false,
+      });
 
       if (!mentioned) return;
+
 
       // If already linked, show panel immediately
       const existing = await store.getProjectByThread(msg.channelId);
