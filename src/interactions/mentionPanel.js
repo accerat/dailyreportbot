@@ -1,6 +1,15 @@
+// src/interactions/mentionPanel.js
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Events, ModalBuilder,
-  TextInputBuilder, TextInputStyle, UserSelectMenuBuilder
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  Events,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  UserSelectMenuBuilder,
+  MessageFlags,
 } from 'discord.js';
 import { todayCT, nowCT } from '../util/time.js';
 import * as store from '../db/store.js';
@@ -84,8 +93,7 @@ function buildStatusRow(project) {
   );
 }
 
-
-// NEW: Project status / close controls (rendered as the 3rd row on the panel)
+// Project status / close controls (rendered as the 3rd row on the panel)
 function projectControlsRow(project) {
   const status = String(project.status || 'open').toLowerCase();
   const isClosed = !!project.is_closed;
@@ -107,6 +115,11 @@ function projectControlsRow(project) {
       .setLabel('Blocked')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!isClosed && status === 'blocked'),
+    new ButtonBuilder()
+      .setCustomId(`proj:status:${pid}:on-hold`)
+      .setLabel('On Hold')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'on-hold'),
     new ButtonBuilder()
       .setCustomId(`proj:close:${pid}`)
       .setLabel('Close')
@@ -148,16 +161,16 @@ export function wireInteractions(client) {
       new ButtonBuilder().setCustomId(`panel:photos:${project.id}`).setLabel('Add Photos').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Show Status').setStyle(ButtonStyle.Secondary),
     );
+    // Row 2: remove Pause/Resume; keep only Change Foreman
     const row2 = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId(`panel:foreman:${project.id}`)
-    .setLabel('Change Foreman')
-    .setStyle(ButtonStyle.Secondary),
-);
+      new ButtonBuilder()
+        .setCustomId(`panel:foreman:${project.id}`)
+        .setLabel('Change Foreman')
+        .setStyle(ButtonStyle.Secondary),
+    );
 
-    //v4 delete: await msg.reply({ embeds: [embed], components: [row1, row2] });
-    const row3 = projectControlsRow(project); // NEW
-    await msg.reply({ embeds: [embed], components: [row1, row2, row3] }); // NEW: include project controls
+    const row3 = projectControlsRow(project);
+    await msg.reply({ embeds: [embed], components: [row1, row2, row3] });
   }
 
   client.on(Events.MessageCreate, async (msg) => {
@@ -250,7 +263,7 @@ export function wireInteractions(client) {
         const pid = Number(i.customId.split(':')[2]);
         const userId = i.values[0];
         await store.upsertProject({ id: pid, foreman_user_id: userId });
-        return i.reply({ content: `Foreman set to <@${userId}>.`, ephemeral: true });
+        return i.reply({ content: `Foreman set to <@${userId}>.`, flags: MessageFlags.Ephemeral });
       }
 
       // Onboarding: set start date/time
@@ -271,7 +284,7 @@ export function wireInteractions(client) {
         const start_date = i.fields.getTextInputValue('start_date').trim();
         const reminder_time = i.fields.getTextInputValue('reminder_time').trim();
         await store.upsertProject({ id: pid, start_date, reminder_start_ct: reminder_time });
-        return i.reply({ content: `Start set to **${start_date}**; reminders begin daily at **${reminder_time} CT**.`, ephemeral: true });
+        return i.reply({ content: `Start set to **${start_date}**; reminders begin daily at **${reminder_time} CT**.`, flags: MessageFlags.Ephemeral });
       }
 
       if (i.isButton() && i.customId.startsWith('onb:done:')) {
@@ -279,9 +292,9 @@ export function wireInteractions(client) {
         const s = await store.load();
         const p = s.projects.find(x => x.id === pid);
         if (!p?.foreman_user_id || !p?.start_date) {
-          return i.reply({ content: 'Please select a foreman and set the start date/time first.', ephemeral: true });
+          return i.reply({ content: 'Please select a foreman and set the start date/time first.', flags: MessageFlags.Ephemeral });
         }
-        await i.reply({ content: `Setup complete for **${p.name}**.`, ephemeral: true });
+        await i.reply({ content: `Setup complete for **${p.name}**.`, flags: MessageFlags.Ephemeral });
         const channel = await i.client.channels.fetch(p.thread_channel_id);
         await channel.send({ content: 'Project linked. Here’s your panel:' });
         return (await channel.sendTyping(), showPanel({ reply: (obj) => channel.send(obj) }, p));
@@ -342,7 +355,7 @@ export function wireInteractions(client) {
 
         return i.reply({
           content: 'Report saved. Toggle triggers (checkboxes) and then **Submit**.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
           components: buildTriggerRows(ins)
         });
       }
@@ -352,7 +365,7 @@ export function wireInteractions(client) {
         const reportId = Number(parts[2]);
         const trig = parts[3];
         const report = await store.getReportById(reportId);
-        if (!report) return i.reply({ content: 'Report not found. Please try again.', ephemeral: true });
+        if (!report) return i.reply({ content: 'Report not found. Please try again.', flags: MessageFlags.Ephemeral });
 
         let list = Array.isArray(report.triggers) ? [...report.triggers] : [];
         if (list.includes(trig)) list = list.filter(x => x !== trig); else list.push(trig);
@@ -360,61 +373,61 @@ export function wireInteractions(client) {
         const updated = await store.updateReportTriggers(reportId, list, i.user.id);
         return i.update({ components: buildTriggerRows(updated) });
       }
+
       // Final submit — post to intake channels and close the UI
-if (action === 'submit' && i.isButton()) {
-  const reportId = Number(parts[2]);
-  const report = await store.getReportById(reportId);
-  if (!report) {
-    return i.reply({ content: 'Report not found. Please try again.', ephemeral: true });
-  }
+      if (action === 'submit' && i.isButton()) {
+        const reportId = Number(parts[2]);
+        const report = await store.getReportById(reportId);
+        if (!report) {
+          return i.reply({ content: 'Report not found. Please try again.', flags: MessageFlags.Ephemeral });
+        }
 
-  // Get project BEFORE using it
-  const project = await store.getProjectById(report.project_id);
+        // Get project BEFORE using it
+        const project = await store.getProjectById(report.project_id);
 
-  // Post a confirmation embed in the project thread (visible to everyone in the thread)
-  if (project) {
-    const ch = await i.client.channels.fetch(project.thread_channel_id);
-    const embed = new EmbedBuilder()
-      .setTitle(`Daily Report — ${project.name}`)
-      .setDescription(report.synopsis || '—')
-      .addFields(
-        { name: 'Percent Complete', value: `${report.percent_complete ?? '—'}%`, inline: true },
-        { name: '# Guys', value: String(report.man_count ?? '—'), inline: true },
-        { name: 'Man-hours', value: String(report.man_hours ?? '—'), inline: true },
-        { name: 'Completion date', value: report.completion_date || '—', inline: true },
-        { name: 'Day #', value: String(report.day_index ?? '—'), inline: true },
-        { name: 'Triggers', value: (report.triggers?.length ? report.triggers.join(', ') : 'none'), inline: false },
-      )
-      .setFooter({ text: `Report date: ${report.report_date}` });
-    await ch.send({ embeds: [embed] });
+        // Post a confirmation embed in the project thread (visible to everyone in the thread)
+        if (project) {
+          const ch = await i.client.channels.fetch(project.thread_channel_id);
+          const embed = new EmbedBuilder()
+            .setTitle(`Daily Report — ${project.name}`)
+            .setDescription(report.synopsis || '—')
+            .addFields(
+              { name: 'Percent Complete', value: `${report.percent_complete ?? '—'}%`, inline: true },
+              { name: '# Guys', value: String(report.man_count ?? '—'), inline: true },
+              { name: 'Man-hours', value: String(report.man_hours ?? '—'), inline: true },
+              { name: 'Completion date', value: report.completion_date || '—', inline: true },
+              { name: 'Day #', value: String(report.day_index ?? '—'), inline: true },
+              { name: 'Triggers', value: (report.triggers?.length ? report.triggers.join(', ') : 'none'), inline: false },
+            )
+            .setFooter({ text: `Report date: ${report.report_date}` });
+          await ch.send({ embeds: [embed] });
 
-    // Post trigger pings to intake channels (activates your other bots)
-    await postTriggerIntakeMessages(i.client, project, report, i.user.id);
-  }
+          // Post trigger pings to intake channels (activates your other bots)
+          await postTriggerIntakeMessages(i.client, project, report, i.user.id);
+        }
 
-  return i.update({ content: 'Daily report submitted ✅', components: [] });
-}
+        return i.update({ content: 'Daily report submitted ✅', components: [] });
+      }
 
-      // === NEW: Project status / close / reopen button handling ===
+      // === Project status / close / reopen button handling (quick row) ===
       if (i.isButton() && i.customId?.startsWith('proj:')) {
-        const partsProj = i.customId.split(':'); // e.g., proj:status:123:open | proj:close:123
+        const partsProj = i.customId.split(':'); // e.g., proj:status:123:on-hold | proj:close:123
         const actionProj = partsProj[1];
         const pid = Number(partsProj[2]);
         const project = await store.getProjectById(pid);
         if (!project) {
-          return i.reply({ content: 'Project not found for this thread.', ephemeral: true });
+          return i.reply({ content: 'Project not found for this thread.', flags: MessageFlags.Ephemeral });
         }
 
         if (actionProj === 'status') {
           const newStatus = String(partsProj[3] || '').trim().toLowerCase();
           await store.upsertProject({ id: pid, status: newStatus });
-          // keep it minimal: acknowledge, don’t rebuild whole message
-          return i.reply({ content: `Status set to **${newStatus}**.`, ephemeral: true });
+          return i.reply({ content: `Status set to **${newStatus}**.`, flags: MessageFlags.Ephemeral });
         }
 
         if (actionProj === 'close') {
           if (project.is_closed) {
-            return i.reply({ content: 'Project is already closed.', ephemeral: true });
+            return i.reply({ content: 'Project is already closed.', flags: MessageFlags.Ephemeral });
           }
           await store.upsertProject({
             id: pid,
@@ -423,12 +436,12 @@ if (action === 'submit' && i.isButton()) {
             closed_by: i.user.id,
             closed_at: new Date().toISOString(),
           });
-          return i.reply({ content: '🛑 Project closed.', ephemeral: false });
+          return i.reply({ content: '🛑 Project closed.' });
         }
 
         if (actionProj === 'reopen') {
           if (!project.is_closed) {
-            return i.reply({ content: 'Project is not closed.', ephemeral: true });
+            return i.reply({ content: 'Project is not closed.', flags: MessageFlags.Ephemeral });
           }
           await store.upsertProject({
             id: pid,
@@ -438,96 +451,94 @@ if (action === 'submit' && i.isButton()) {
             closed_at: null,
             reopened_by: i.user.id,
           });
-          return i.reply({ content: '✅ Project re-opened.', ephemeral: false });
+          return i.reply({ content: '✅ Project re-opened.' });
         }
       }
 
       // Clicked: Show Status (opens mini status panel)
-if (action === 'status' && i.isButton()) {
-  const pid = Number(parts[2]);
-  const project = await store.getProjectById(pid);
-  if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+      if (action === 'status' && i.isButton()) {
+        const pid = Number(parts[2]);
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', flags: MessageFlags.Ephemeral });
 
-  const lines = [
-    `**Status:** ${project.status ?? '—'}`,
-    `**Closed:** ${project.is_closed ? 'Yes' : 'No'}`
-  ];
-  if (project.closed_reason) lines.push(`**Closed Reason:** ${project.closed_reason}`);
+        const lines = [
+          `**Status:** ${project.status ?? '—'}`,
+          `**Closed:** ${project.is_closed ? 'Yes' : 'No'}`,
+        ];
+        if (project.closed_reason) lines.push(`**Closed Reason:** ${project.closed_reason}`);
 
-  return i.reply({
-    content: lines.join('\n'),
-    components: [buildStatusRow(project)],
-    ephemeral: true
-  });
-}
+        return i.reply({
+          content: lines.join('\n'),
+          components: [buildStatusRow(project)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
 
-// Clicked: set status (Open / In Progress / Blocked)
-if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
-  const [, , pidStr, value] = i.customId.split(':');
-  const pid = Number(pidStr);
-  const allowed = new Set(['open', 'in-progress', 'blocked', 'on-hold']);
-  const val = String(value || '').toLowerCase();
-  if (!allowed.has(val)) {
-    return i.reply({ content: 'Invalid status.', ephemeral: true });
-  }
+      // Clicked: set status (Open / In Progress / Blocked / On Hold) from mini panel
+      if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
+        const [, , pidStr, value] = i.customId.split(':');
+        const pid = Number(pidStr);
+        const allowed = new Set(['open', 'in-progress', 'blocked', 'on-hold']);
+        const val = String(value || '').toLowerCase();
+        if (!allowed.has(val)) {
+          return i.reply({ content: 'Invalid status.', flags: MessageFlags.Ephemeral });
+        }
 
-  await store.upsertProject({ id: pid, status: val });
-  const project = await store.getProjectById(pid);
+        await store.upsertProject({ id: pid, status: val });
+        const project = await store.getProjectById(pid);
 
-  return i.update({
-    content: `Status set to **${project.status}**.`,
-    components: [buildStatusRow(project)],
-  });
-}
+        return i.update({
+          content: `Status set to **${project.status}**.`,
+          components: [buildStatusRow(project)],
+        });
+      }
 
+      // Clicked: Close from mini panel
+      if (i.isButton() && i.customId.startsWith('panel:close:')) {
+        const pid = Number(i.customId.split(':')[2]);
+        const project = await store.getProjectById(pid);
+        if (project?.is_closed) {
+          return i.reply({ content: 'Project is already closed.', flags: MessageFlags.Ephemeral });
+        }
+        await store.upsertProject({
+          id: pid,
+          is_closed: true,
+          status: project?.status && project.status !== 'open' ? project.status : 'closed',
+          closed_by: i.user.id,
+          closed_at: new Date().toISOString(),
+        });
+        const updated = await store.getProjectById(pid);
+        return i.update({ content: '🛑 Project closed.', components: [buildStatusRow(updated)] });
+      }
 
-// Clicked: Close
-if (i.isButton() && i.customId.startsWith('panel:close:')) {
-  const pid = Number(i.customId.split(':')[2]);
-  const project = await store.getProjectById(pid);
-  if (project?.is_closed) {
-    return i.reply({ content: 'Project is already closed.', ephemeral: true });
-  }
-  await store.upsertProject({
-    id: pid,
-    is_closed: true,
-    status: project?.status && project.status !== 'open' ? project.status : 'closed',
-    closed_by: i.user.id,
-    closed_at: new Date().toISOString()
-  });
-  const updated = await store.getProjectById(pid);
-  return i.update({ content: '🛑 Project closed.', components: [buildStatusRow(updated)] });
-}
-
-// Clicked: Reopen
-if (i.isButton() && i.customId.startsWith('panel:reopen:')) {
-  const pid = Number(i.customId.split(':')[2]);
-  const project = await store.getProjectById(pid);
-  if (!project?.is_closed) {
-    return i.reply({ content: 'Project is not closed.', ephemeral: true });
-  }
-  await store.upsertProject({
-    id: pid,
-    is_closed: false,
-    status: project.status === 'closed' ? 'open' : (project.status || 'open'),
-    closed_reason: null,
-    closed_at: null,
-    reopened_by: i.user.id
-  });
-  const updated = await store.getProjectById(pid);
-  return i.update({ content: '✅ Project re-opened.', components: [buildStatusRow(updated)] });
-}
-
+      // Clicked: Reopen from mini panel
+      if (i.isButton() && i.customId.startsWith('panel:reopen:')) {
+        const pid = Number(i.customId.split(':')[2]);
+        const project = await store.getProjectById(pid);
+        if (!project?.is_closed) {
+          return i.reply({ content: 'Project is not closed.', flags: MessageFlags.Ephemeral });
+        }
+        await store.upsertProject({
+          id: pid,
+          is_closed: false,
+          status: project.status === 'closed' ? 'open' : (project.status || 'open'),
+          closed_reason: null,
+          closed_at: null,
+          reopened_by: i.user.id,
+        });
+        const updated = await store.getProjectById(pid);
+        return i.update({ content: '✅ Project re-opened.', components: [buildStatusRow(updated)] });
+      }
 
       // Stubs for other panel buttons so they don't "fail"
-      if (['photos','status','pause','resume','foreman'].includes(action) && i.isButton()) {
-        return i.reply({ content: 'That action will be available soon.', ephemeral: true });
+      if (['photos','pause','resume','foreman'].includes(action) && i.isButton()) {
+        return i.reply({ content: 'That action will be available soon.', flags: MessageFlags.Ephemeral });
       }
 
     } catch (e) {
       console.error('Interaction handler error:', e);
       if (!i.deferred && !i.replied) {
-        await i.reply({ content: 'There was an error handling that action. Please try again.', ephemeral: true });
+        await i.reply({ content: 'There was an error handling that action. Please try again.', flags: MessageFlags.Ephemeral });
       } else if (i.deferred) {
         await i.editReply({ content: 'There was an error handling that action. Please try again.' });
       }
