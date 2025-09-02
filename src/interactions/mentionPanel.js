@@ -99,7 +99,7 @@ function projectControlsRow(project) {
   const isClosed = !!project.is_closed;
   const pid = project.id;
 
-  const row = new ActionRowBuilder().addComponents(
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`proj:status:${pid}:open`)
       .setLabel('Open')
@@ -131,30 +131,11 @@ function projectControlsRow(project) {
       .setStyle(ButtonStyle.Success)
       .setDisabled(isClosed === false),
   );
-  return row;
-}
-
-async function postTriggerIntakeMessages(client, project, report, authorId) {
-  for (const t of report.triggers || []) {
-    const channelId = TRIGGER_CHANNELS[t];
-    if (!channelId) continue;
-    try {
-      const ch = await client.channels.fetch(channelId);
-      await ch.send(
-        `🔔 **${t.toUpperCase()}** trigger — **${project.name}** (Day ${report.day_index}, ${report.report_date})\n` +
-        `Requester: <@${authorId}>\nThread: <#${project.thread_channel_id}>`
-      );
-    } catch (e) {
-      console.error('trigger post error', t, e);
-    }
-  }
 }
 
 export function wireInteractions(client) {
-
   console.log('[mentionPanel] handlers wired');
-  // ... (rest unchanged)
-  
+
   async function showPanel(msg, project) {
     const embed = new EmbedBuilder()
       .setTitle(`Project Panel — ${project.name}`)
@@ -164,40 +145,34 @@ export function wireInteractions(client) {
       new ButtonBuilder().setCustomId(`panel:photos:${project.id}`).setLabel('Add Photos').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Show Status').setStyle(ButtonStyle.Secondary),
     );
-    // Row 2: only Change Foreman
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`panel:foreman:${project.id}`)
         .setLabel('Change Foreman')
         .setStyle(ButtonStyle.Secondary),
     );
-
     const row3 = projectControlsRow(project);
 
     try {
       await msg.reply({ embeds: [embed], components: [row1, row2, row3] });
     } catch {
-      // Fallback if reply fails (e.g., missing perms)
       await msg.channel.send({ embeds: [embed], components: [row1, row2, row3] });
     }
   }
 
-    // ---- Mention handler (restore robust, intent-free detection) ----
+  // ---- Mention handler (tokenized, intent-free) ----
   client.on(Events.MessageCreate, async (msg) => {
     try {
       if (!client.user) return;
       if (msg.author?.bot) return;
 
-      // Use Discord's built-in mention resolver (works without Message Content intent)
-      // This checks actual user mentions and replies, ignores @everyone/@roles.
+      // Rely on Discord's resolver (no Message Content needed)
       const mentioned = msg.mentions?.has?.(client.user, {
         ignoreEveryone: true,
         ignoreRoles: true,
         ignoreRepliedUser: false,
       });
-
       if (!mentioned) return;
-
 
       // If already linked, show panel immediately
       const existing = await store.getProjectByThread(msg.channelId);
@@ -209,16 +184,8 @@ export function wireInteractions(client) {
         ? channel.isThread()
         : [10, 11, 12].includes(channel.type);
       if (!isThread) {
-        const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
-        const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
-        if (isAdminSender) {
-          try {
-            return await msg.reply('This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.');
-          } catch {
-            return await msg.channel.send('This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.');
-          }
-        }
-        return;
+        const text = 'This isn’t a thread. Create a **forum post (thread)** in your project forum, then @mention me there.';
+        try { return await msg.reply(text); } catch { return await msg.channel.send(text); }
       }
 
       // Identify forum and parent category
@@ -234,16 +201,8 @@ export function wireInteractions(client) {
         (settings.uhc_forum_id && forumId === settings.uhc_forum_id);
 
       if (!inProjectCategory && !inKnownForum) {
-        const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
-        const isAdminSender = adminIds.includes(msg.author.id) || msg.member?.permissions?.has('Administrator');
-        if (isAdminSender) {
-          try {
-            return await msg.reply('No project container configured. Run **/admin-set-project-category** (recommended) or **/admin-set-forums** first.');
-          } catch {
-            return await msg.channel.send('No project container configured. Run **/admin-set-project-category** (recommended) or **/admin-set-forums** first.');
-          }
-        }
-        return;
+        const txt = 'No project container configured. Ask an admin to run **/admin-set-project-category** (recommended) or **/admin-set-forums**.';
+        try { return await msg.reply(txt); } catch { return await msg.channel.send(txt); }
       }
 
       // Determine type
@@ -390,7 +349,7 @@ export function wireInteractions(client) {
 
       const action = parts[1];
 
-      // New Daily Report — modal with Completion date (prefilled from last report)
+      // New Daily Report — modal
       if (action === 'new' && i.isButton()) {
         const projectId = Number(parts[2]);
         const last = await store.latestReport(projectId);
@@ -435,7 +394,6 @@ export function wireInteractions(client) {
           day_index: dayIndex, triggers: [], photos: [], completion_date
         });
 
-        // Keep latest completion date on project for convenient prefill next time
         if (completion_date) await store.upsertProject({ id: projectId, completion_date });
 
         return i.reply({
@@ -467,10 +425,7 @@ export function wireInteractions(client) {
           return i.reply({ content: 'Report not found. Please try again.', flags: MessageFlags.Ephemeral });
         }
 
-        // Get project BEFORE using it
         const project = await store.getProjectById(report.project_id);
-
-        // Post a confirmation embed in the project thread (visible to everyone in the thread)
         if (project) {
           const ch = await i.client.channels.fetch(project.thread_channel_id);
           const embed = new EmbedBuilder()
@@ -487,14 +442,13 @@ export function wireInteractions(client) {
             .setFooter({ text: `Report date: ${report.report_date}` });
           await ch.send({ embeds: [embed] });
 
-          // Post trigger pings to intake channels (activates your other bots)
-          await postTriggerIntakeMessages(i.client, project, report, i.user.id);
+          await postSummaryTriggerPings(i.client, project, report, i.user.id); // (optional if you have it)
         }
 
         return i.update({ content: 'Daily report submitted ✅', components: [] });
       }
 
-      // Clicked: Show Status (opens mini status panel)
+      // Clicked: Show Status
       if (action === 'status' && i.isButton()) {
         const pid = Number(parts[2]);
         const project = await store.getProjectById(pid);
@@ -513,7 +467,7 @@ export function wireInteractions(client) {
         });
       }
 
-      // Clicked: set status (Open / In Progress / Blocked / On Hold) from mini panel
+      // Clicked: set status
       if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
         const [, , pidStr, value] = i.customId.split(':');
         const pid = Number(pidStr);
@@ -532,7 +486,7 @@ export function wireInteractions(client) {
         });
       }
 
-      // Clicked: Close from mini panel
+      // Clicked: Close
       if (i.isButton() && i.customId.startsWith('panel:close:')) {
         const pid = Number(i.customId.split(':')[2]);
         const project = await store.getProjectById(pid);
@@ -550,7 +504,7 @@ export function wireInteractions(client) {
         return i.update({ content: '🛑 Project closed.', components: [buildStatusRow(updated)] });
       }
 
-      // Clicked: Reopen from mini panel
+      // Clicked: Reopen
       if (i.isButton() && i.customId.startsWith('panel:reopen:')) {
         const pid = Number(i.customId.split(':')[2]);
         const project = await store.getProjectById(pid);
@@ -569,7 +523,7 @@ export function wireInteractions(client) {
         return i.update({ content: '✅ Project re-opened.', components: [buildStatusRow(updated)] });
       }
 
-      // Stubs for other panel buttons so they don't "fail"
+      // Stubs for other panel buttons
       if (['photos','pause','resume','foreman'].includes(action) && i.isButton()) {
         return i.reply({ content: 'That action will be available soon.', flags: MessageFlags.Ephemeral });
       }

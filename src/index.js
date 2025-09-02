@@ -24,9 +24,15 @@ import * as adminBackfill from './commands/adminBackfillMissed.js';
 import * as adminSetForums from './commands/adminSetForums.js';
 import * as adminSetProjectCategory from './commands/adminSetProjectCategory.js';
 
-// Create the client BEFORE using it
 export const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    // MessageContent is NOT required for mention parsing via msg.mentions,
+    // but leave it on if you already enabled it in the Dev Portal.
+    GatewayIntentBits.MessageContent,
+  ],
   partials: [Partials.Channel],
 });
 global.client = client;
@@ -51,7 +57,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!mod?.execute) {
       return interaction.reply({ content: 'Unknown command.', flags: MessageFlags.Ephemeral });
     }
-    await mod.execute(interaction); // each /admin-* defers internally
+    await mod.execute(interaction);
   } catch (err) {
     console.error('Slash command error:', err);
     if (interaction.deferred || interaction.replied) {
@@ -62,13 +68,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// Dismiss button handler for reminder DMs (robust + no deprecation)
+// Dismiss button handler for reminder DMs
 client.on(Events.InteractionCreate, async (i) => {
   if (!i.isButton()) return;
   if (!i.customId?.startsWith('rem:dismiss:')) return;
 
   try {
-    // Acknowledge immediately (prevents "Unknown interaction" if slow)
     if (!i.deferred && !i.replied) {
       await i.deferReply({ flags: MessageFlags.Ephemeral });
     }
@@ -91,22 +96,18 @@ client.on(Events.InteractionCreate, async (i) => {
   } catch (e) {
     console.error('Dismiss handler error:', e);
     try {
-      await i.followUp({
-        content: 'Dismissed.',
-        flags: MessageFlags.Ephemeral,
-      });
+      await i.followUp({ content: 'Dismissed.', flags: MessageFlags.Ephemeral });
     } catch {}
   }
 });
 
 // Wire up message-based interactions (mentions + panel)
+console.log('[index] calling wireInteractions() …');
 wireInteractions(client);
 
-// Keepalive HTTP server (for UptimeRobot)
 const port = process.env.PORT ? Number(process.env.PORT) : 14522;
 startKeepAlive(client).listen(port, () => {
   console.log(`HTTP keepalive listening on ${port}`);
 });
 
-// Login
 client.login(process.env.BOT_TOKEN);
