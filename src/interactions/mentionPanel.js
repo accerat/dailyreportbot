@@ -44,6 +44,77 @@ function buildTriggerRows(report) {
   return [rowA, rowB, submitRow];
 }
 
+// Mini controls shown when you click "Show Status"
+function buildStatusRow(project) {
+  const status = String(project.status || 'open').toLowerCase();
+  const isClosed = !!project.is_closed;
+  const pid = project.id;
+
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`panel:setstatus:${pid}:open`)
+      .setLabel('Open')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'open'),
+    new ButtonBuilder()
+      .setCustomId(`panel:setstatus:${pid}:in-progress`)
+      .setLabel('In Progress')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'in-progress'),
+    new ButtonBuilder()
+      .setCustomId(`panel:setstatus:${pid}:blocked`)
+      .setLabel('Blocked')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'blocked'),
+    new ButtonBuilder()
+      .setCustomId(`panel:close:${pid}`)
+      .setLabel('Close')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(isClosed),
+    new ButtonBuilder()
+      .setCustomId(`panel:reopen:${pid}`)
+      .setLabel('Reopen')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!isClosed),
+  );
+}
+
+// NEW: Project status / close controls (rendered as the 3rd row on the panel)
+function projectControlsRow(project) {
+  const status = String(project.status || 'open').toLowerCase();
+  const isClosed = !!project.is_closed;
+  const pid = project.id;
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`proj:status:${pid}:open`)
+      .setLabel('Open')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'open'),
+    new ButtonBuilder()
+      .setCustomId(`proj:status:${pid}:in-progress`)
+      .setLabel('In Progress')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'in-progress'),
+    new ButtonBuilder()
+      .setCustomId(`proj:status:${pid}:blocked`)
+      .setLabel('Blocked')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'blocked'),
+    new ButtonBuilder()
+      .setCustomId(`proj:close:${pid}`)
+      .setLabel('Close')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(isClosed === true),
+    new ButtonBuilder()
+      .setCustomId(`proj:reopen:${pid}`)
+      .setLabel('Reopen')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(isClosed === false),
+  );
+  return row;
+}
+
 async function postTriggerIntakeMessages(client, project, report, authorId) {
   for (const t of report.triggers || []) {
     const channelId = TRIGGER_CHANNELS[t];
@@ -76,7 +147,9 @@ export function wireInteractions(client) {
       new ButtonBuilder().setCustomId(`panel:resume:${project.id}`).setLabel('Resume & Set Time').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
     );
-    await msg.reply({ embeds: [embed], components: [row1, row2] });
+    //v4 delete: await msg.reply({ embeds: [embed], components: [row1, row2] });
+    const row3 = projectControlsRow(project); // NEW
+    await msg.reply({ embeds: [embed], components: [row1, row2, row3] }); // NEW: include project controls
   }
 
   client.on(Events.MessageCreate, async (msg) => {
@@ -314,6 +387,123 @@ if (action === 'submit' && i.isButton()) {
   return i.update({ content: 'Daily report submitted ✅', components: [] });
 }
 
+      // === NEW: Project status / close / reopen button handling ===
+      if (i.isButton() && i.customId?.startsWith('proj:')) {
+        const partsProj = i.customId.split(':'); // e.g., proj:status:123:open | proj:close:123
+        const actionProj = partsProj[1];
+        const pid = Number(partsProj[2]);
+        const project = await store.getProjectById(pid);
+        if (!project) {
+          return i.reply({ content: 'Project not found for this thread.', ephemeral: true });
+        }
+
+        if (actionProj === 'status') {
+          const newStatus = String(partsProj[3] || '').trim().toLowerCase();
+          await store.upsertProject({ id: pid, status: newStatus });
+          // keep it minimal: acknowledge, don’t rebuild whole message
+          return i.reply({ content: `Status set to **${newStatus}**.`, ephemeral: true });
+        }
+
+        if (actionProj === 'close') {
+          if (project.is_closed) {
+            return i.reply({ content: 'Project is already closed.', ephemeral: true });
+          }
+          await store.upsertProject({
+            id: pid,
+            is_closed: true,
+            status: project.status && project.status !== 'open' ? project.status : 'closed',
+            closed_by: i.user.id,
+            closed_at: new Date().toISOString(),
+          });
+          return i.reply({ content: '🛑 Project closed.', ephemeral: false });
+        }
+
+        if (actionProj === 'reopen') {
+          if (!project.is_closed) {
+            return i.reply({ content: 'Project is not closed.', ephemeral: true });
+          }
+          await store.upsertProject({
+            id: pid,
+            is_closed: false,
+            status: project.status === 'closed' ? 'open' : (project.status || 'open'),
+            closed_reason: null,
+            closed_at: null,
+            reopened_by: i.user.id,
+          });
+          return i.reply({ content: '✅ Project re-opened.', ephemeral: false });
+        }
+      }
+
+      // Clicked: Show Status (opens mini status panel)
+if (action === 'status' && i.isButton()) {
+  const pid = Number(parts[2]);
+  const project = await store.getProjectById(pid);
+  if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+
+  const lines = [
+    `**Status:** ${project.status ?? '—'}`,
+    `**Closed:** ${project.is_closed ? 'Yes' : 'No'}`
+  ];
+  if (project.closed_reason) lines.push(`**Closed Reason:** ${project.closed_reason}`);
+
+  return i.reply({
+    content: lines.join('\n'),
+    components: [buildStatusRow(project)],
+    ephemeral: true
+  });
+}
+
+// Clicked: set status (Open / In Progress / Blocked)
+if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
+  const [, , pidStr, value] = i.customId.split(':');
+  const pid = Number(pidStr);
+  const val = String(value || '').toLowerCase();
+
+  await store.upsertProject({ id: pid, status: val });
+  const project = await store.getProjectById(pid);
+
+  return i.update({
+    content: `Status set to **${project.status}**.`,
+    components: [buildStatusRow(project)]
+  });
+}
+
+// Clicked: Close
+if (i.isButton() && i.customId.startsWith('panel:close:')) {
+  const pid = Number(i.customId.split(':')[2]);
+  const project = await store.getProjectById(pid);
+  if (project?.is_closed) {
+    return i.reply({ content: 'Project is already closed.', ephemeral: true });
+  }
+  await store.upsertProject({
+    id: pid,
+    is_closed: true,
+    status: project?.status && project.status !== 'open' ? project.status : 'closed',
+    closed_by: i.user.id,
+    closed_at: new Date().toISOString()
+  });
+  const updated = await store.getProjectById(pid);
+  return i.update({ content: '🛑 Project closed.', components: [buildStatusRow(updated)] });
+}
+
+// Clicked: Reopen
+if (i.isButton() && i.customId.startsWith('panel:reopen:')) {
+  const pid = Number(i.customId.split(':')[2]);
+  const project = await store.getProjectById(pid);
+  if (!project?.is_closed) {
+    return i.reply({ content: 'Project is not closed.', ephemeral: true });
+  }
+  await store.upsertProject({
+    id: pid,
+    is_closed: false,
+    status: project.status === 'closed' ? 'open' : (project.status || 'open'),
+    closed_reason: null,
+    closed_at: null,
+    reopened_by: i.user.id
+  });
+  const updated = await store.getProjectById(pid);
+  return i.update({ content: '✅ Project re-opened.', components: [buildStatusRow(updated)] });
+}
 
 
       // Stubs for other panel buttons so they don't "fail"
