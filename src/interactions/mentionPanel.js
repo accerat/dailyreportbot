@@ -186,10 +186,15 @@ export function wireInteractions(client) {
       if (msg.author?.bot) return;
 
       // Consider @user mention, @member mention, or replying to the bot
+            const content = msg.content || '';
+ const mentionA = `<@${client.user.id}>`;
+      const mentionB = `<@!${client.user.id}>`; // some clients include '!'
       const mentioned =
         msg.mentions?.users?.has(client.user.id) ||
         msg.mentions?.members?.has(client.user.id) ||
-        msg.mentions?.repliedUser?.id === client.user.id;
+        msg.mentions?.repliedUser?.id === client.user.id ||
+        content.includes(mentionA) ||
+        content.includes(mentionB);
 
       if (!mentioned) return;
 

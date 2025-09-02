@@ -26,7 +26,7 @@ import * as adminSetProjectCategory from './commands/adminSetProjectCategory.js'
 
 // Create the client BEFORE using it
 export const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
   partials: [Partials.Channel],
 });
 global.client = client;
