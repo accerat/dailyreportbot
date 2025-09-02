@@ -53,13 +53,16 @@ function buildTriggerRows(report) {
   return [rowA, rowB, submitRow];
 }
 
-// Mini controls shown when you click "Show Status"
-function buildStatusRow(project) {
+/**
+ * Mini Status panel shown in an ephemeral reply.
+ * Must return <= 5 components per row. We split 6 buttons into 2 rows.
+ */
+function buildStatusRows(project) {
   const status = String(project.status || 'open').toLowerCase();
   const isClosed = !!project.is_closed;
   const pid = project.id;
 
-  return new ActionRowBuilder().addComponents(
+  const rowA = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`panel:setstatus:${pid}:open`)
       .setLabel('Open')
@@ -80,6 +83,9 @@ function buildStatusRow(project) {
       .setLabel('On Hold')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!isClosed && status === 'on-hold'),
+  );
+
+  const rowB = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`panel:close:${pid}`)
       .setLabel('Close')
@@ -91,10 +97,14 @@ function buildStatusRow(project) {
       .setStyle(ButtonStyle.Success)
       .setDisabled(!isClosed),
   );
+
+  return [rowA, rowB];
 }
 
-// Quick status/close row shown on the main panel
-function projectControlsRow(project) {
+/**
+ * Main panel quick controls — split into TWO rows to satisfy Discord limits.
+ */
+function projectStatusRow(project) {
   const status = String(project.status || 'open').toLowerCase();
   const isClosed = !!project.is_closed;
   const pid = project.id;
@@ -120,6 +130,14 @@ function projectControlsRow(project) {
       .setLabel('On Hold')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!isClosed && status === 'on-hold'),
+  );
+}
+
+function projectCloseRow(project) {
+  const isClosed = !!project.is_closed;
+  const pid = project.id;
+
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`proj:close:${pid}`)
       .setLabel('Close')
@@ -133,6 +151,22 @@ function projectControlsRow(project) {
   );
 }
 
+async function postTriggerIntakeMessages(client, project, report, authorId) {
+  for (const t of report.triggers || []) {
+    const channelId = TRIGGER_CHANNELS[t];
+    if (!channelId) continue;
+    try {
+      const ch = await client.channels.fetch(channelId);
+      await ch.send(
+        `🔔 **${t.toUpperCase()}** trigger — **${project.name}** (Day ${report.day_index}, ${report.report_date})\n` +
+        `Requester: <@${authorId}>\nThread: <#${project.thread_channel_id}>`
+      );
+    } catch (e) {
+      console.error('trigger post error', t, e);
+    }
+  }
+}
+
 export function wireInteractions(client) {
   console.log('[mentionPanel] handlers wired');
 
@@ -140,23 +174,29 @@ export function wireInteractions(client) {
     const embed = new EmbedBuilder()
       .setTitle(`Project Panel — ${project.name}`)
       .setDescription('Choose an action below.');
+
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`panel:new:${project.id}`).setLabel('New Daily Report').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`panel:photos:${project.id}`).setLabel('Add Photos').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Show Status').setStyle(ButtonStyle.Secondary),
     );
+
+    // Row 2: only Change Foreman
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`panel:foreman:${project.id}`)
         .setLabel('Change Foreman')
         .setStyle(ButtonStyle.Secondary),
     );
-    const row3 = projectControlsRow(project);
+
+    // Rows 3 & 4: split status controls (4) and close/reopen (2)
+    const row3 = projectStatusRow(project);
+    const row4 = projectCloseRow(project);
 
     try {
-      await msg.reply({ embeds: [embed], components: [row1, row2, row3] });
+      await msg.reply({ embeds: [embed], components: [row1, row2, row3, row4] });
     } catch {
-      await msg.channel.send({ embeds: [embed], components: [row1, row2, row3] });
+      await msg.channel.send({ embeds: [embed], components: [row1, row2, row3, row4] });
     }
   }
 
@@ -166,7 +206,7 @@ export function wireInteractions(client) {
       if (!client.user) return;
       if (msg.author?.bot) return;
 
-      // Rely on Discord's resolver (no Message Content needed)
+      // Use Discord's resolver (works without Message Content intent)
       const mentioned = msg.mentions?.has?.(client.user, {
         ignoreEveryone: true,
         ignoreRoles: true,
@@ -349,7 +389,7 @@ export function wireInteractions(client) {
 
       const action = parts[1];
 
-      // New Daily Report — modal
+      // New Daily Report — modal with Completion date (prefilled from last report)
       if (action === 'new' && i.isButton()) {
         const projectId = Number(parts[2]);
         const last = await store.latestReport(projectId);
@@ -394,6 +434,7 @@ export function wireInteractions(client) {
           day_index: dayIndex, triggers: [], photos: [], completion_date
         });
 
+        // Keep latest completion date on project for convenient prefill next time
         if (completion_date) await store.upsertProject({ id: projectId, completion_date });
 
         return i.reply({
@@ -425,7 +466,10 @@ export function wireInteractions(client) {
           return i.reply({ content: 'Report not found. Please try again.', flags: MessageFlags.Ephemeral });
         }
 
+        // Get project BEFORE using it
         const project = await store.getProjectById(report.project_id);
+
+        // Post a confirmation embed in the project thread (visible to everyone in the thread)
         if (project) {
           const ch = await i.client.channels.fetch(project.thread_channel_id);
           const embed = new EmbedBuilder()
@@ -442,13 +486,14 @@ export function wireInteractions(client) {
             .setFooter({ text: `Report date: ${report.report_date}` });
           await ch.send({ embeds: [embed] });
 
-          await postSummaryTriggerPings(i.client, project, report, i.user.id); // (optional if you have it)
+          // Post trigger pings to intake channels (activates your other bots)
+          await postTriggerIntakeMessages(i.client, project, report, i.user.id);
         }
 
         return i.update({ content: 'Daily report submitted ✅', components: [] });
       }
 
-      // Clicked: Show Status
+      // Clicked: Show Status (opens mini status panel)
       if (action === 'status' && i.isButton()) {
         const pid = Number(parts[2]);
         const project = await store.getProjectById(pid);
@@ -462,12 +507,12 @@ export function wireInteractions(client) {
 
         return i.reply({
           content: lines.join('\n'),
-          components: [buildStatusRow(project)],
+          components: buildStatusRows(project), // TWO rows (4 + 2)
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      // Clicked: set status
+      // Clicked: set status (Open / In Progress / Blocked / On Hold) from mini panel
       if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
         const [, , pidStr, value] = i.customId.split(':');
         const pid = Number(pidStr);
@@ -482,11 +527,11 @@ export function wireInteractions(client) {
 
         return i.update({
           content: `Status set to **${project.status}**.`,
-          components: [buildStatusRow(project)],
+          components: buildStatusRows(project), // keep 2 rows
         });
       }
 
-      // Clicked: Close
+      // Clicked: Close from mini panel
       if (i.isButton() && i.customId.startsWith('panel:close:')) {
         const pid = Number(i.customId.split(':')[2]);
         const project = await store.getProjectById(pid);
@@ -501,10 +546,10 @@ export function wireInteractions(client) {
           closed_at: new Date().toISOString(),
         });
         const updated = await store.getProjectById(pid);
-        return i.update({ content: '🛑 Project closed.', components: [buildStatusRow(updated)] });
+        return i.update({ content: '🛑 Project closed.', components: buildStatusRows(updated) });
       }
 
-      // Clicked: Reopen
+      // Clicked: Reopen from mini panel
       if (i.isButton() && i.customId.startsWith('panel:reopen:')) {
         const pid = Number(i.customId.split(':')[2]);
         const project = await store.getProjectById(pid);
@@ -520,10 +565,10 @@ export function wireInteractions(client) {
           reopened_by: i.user.id,
         });
         const updated = await store.getProjectById(pid);
-        return i.update({ content: '✅ Project re-opened.', components: [buildStatusRow(updated)] });
+        return i.update({ content: '✅ Project re-opened.', components: buildStatusRows(updated) });
       }
 
-      // Stubs for other panel buttons
+      // Stubs for other panel buttons so they don't "fail"
       if (['photos','pause','resume','foreman'].includes(action) && i.isButton()) {
         return i.reply({ content: 'That action will be available soon.', flags: MessageFlags.Ephemeral });
       }
