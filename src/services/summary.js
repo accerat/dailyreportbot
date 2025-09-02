@@ -1,3 +1,4 @@
+// src/services/summary.js
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
 
@@ -60,7 +61,7 @@ export async function postDailySummaryAll() {
   const today = now.toISODate();
 
   const ctx = await store.load();                 // full JSON store
-  const projects = await store.allSummaryProjects();
+  const projects = await store.allSummaryProjects(); // keep selection logic as-is
 
   // Build one row per project (lifetime totals & flags)
   const rows = projects.map(p => {
@@ -75,8 +76,12 @@ export async function postDailySummaryAll() {
     ));
     const flags = ever.length ? ever.join(', ') : '—';
 
+    // NEW: include current status (default to 'open')
+    const status = String(p.status || 'open').toLowerCase();
+
     return {
       name: p.name,
+      status,
       start,
       anticipated,
       totalHrs,
@@ -88,23 +93,26 @@ export async function postDailySummaryAll() {
   rows.sort((a, b) => a.name.localeCompare(b.name));
 
   // Compute column widths (with sane caps so it fits nicely)
-  const headers = ['Project', 'Start', 'Anticipated End', 'Total Hrs', 'Flags (ever)'];
-  const maxName  = Math.min(Math.max(headers[0].length, ...rows.map(r => r.name.length)), 36);
-  const maxStart = Math.max(headers[1].length, ...rows.map(r => String(r.start).length));
-  const maxEnd   = Math.max(headers[2].length, ...rows.map(r => String(r.anticipated).length));
-  const maxHrs   = Math.max(headers[3].length, ...rows.map(r => String(r.totalHrs).length));
-  const maxFlags = Math.min(Math.max(headers[4].length, ...rows.map(r => String(r.flags).length)), 50);
+  const headers = ['Project', 'Status', 'Start', 'Anticipated End', 'Total Hrs', 'Flags (ever)'];
+  const maxName   = Math.min(Math.max(headers[0].length, ...rows.map(r => r.name.length)), 36);
+  const maxStatus = Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 12);
+  const maxStart  = Math.max(headers[2].length, ...rows.map(r => String(r.start).length));
+  const maxEnd    = Math.max(headers[3].length, ...rows.map(r => String(r.anticipated).length));
+  const maxHrs    = Math.max(headers[4].length, ...rows.map(r => String(r.totalHrs).length));
+  const maxFlags  = Math.min(Math.max(headers[5].length, ...rows.map(r => String(r.flags).length)), 50);
 
   const headerLine = [
     pad(headers[0], maxName),
-    pad(headers[1], maxStart),
-    pad(headers[2], maxEnd),
-    pad(headers[3], maxHrs),
-    pad(headers[4], maxFlags),
+    pad(headers[1], maxStatus),
+    pad(headers[2], maxStart),
+    pad(headers[3], maxEnd),
+    pad(headers[4], maxHrs),
+    pad(headers[5], maxFlags),
   ].join('  ');
 
   const sepLine = [
     '-'.repeat(maxName),
+    '-'.repeat(maxStatus),
     '-'.repeat(maxStart),
     '-'.repeat(maxEnd),
     '-'.repeat(maxHrs),
@@ -114,6 +122,7 @@ export async function postDailySummaryAll() {
   const bodyLines = rows.map(r => {
     return [
       pad(truncate(r.name, maxName), maxName),
+      pad(truncate(r.status, maxStatus), maxStatus),
       pad(r.start, maxStart),
       pad(r.anticipated, maxEnd),
       pad(String(r.totalHrs), maxHrs),

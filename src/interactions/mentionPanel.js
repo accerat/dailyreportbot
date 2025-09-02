@@ -67,6 +67,11 @@ function buildStatusRow(project) {
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!isClosed && status === 'blocked'),
     new ButtonBuilder()
+      .setCustomId(`panel:setstatus:${pid}:on-hold`)
+      .setLabel('On Hold')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isClosed && status === 'on-hold'),
+    new ButtonBuilder()
       .setCustomId(`panel:close:${pid}`)
       .setLabel('Close')
       .setStyle(ButtonStyle.Danger)
@@ -78,6 +83,7 @@ function buildStatusRow(project) {
       .setDisabled(!isClosed),
   );
 }
+
 
 // NEW: Project status / close controls (rendered as the 3rd row on the panel)
 function projectControlsRow(project) {
@@ -143,10 +149,12 @@ export function wireInteractions(client) {
       new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Show Status').setStyle(ButtonStyle.Secondary),
     );
     const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`panel:pause:${project.id}`).setLabel('Pause Project').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`panel:resume:${project.id}`).setLabel('Resume & Set Time').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
-    );
+  new ButtonBuilder()
+    .setCustomId(`panel:foreman:${project.id}`)
+    .setLabel('Change Foreman')
+    .setStyle(ButtonStyle.Secondary),
+);
+
     //v4 delete: await msg.reply({ embeds: [embed], components: [row1, row2] });
     const row3 = projectControlsRow(project); // NEW
     await msg.reply({ embeds: [embed], components: [row1, row2, row3] }); // NEW: include project controls
@@ -457,16 +465,21 @@ if (action === 'status' && i.isButton()) {
 if (i.isButton() && i.customId.startsWith('panel:setstatus:')) {
   const [, , pidStr, value] = i.customId.split(':');
   const pid = Number(pidStr);
+  const allowed = new Set(['open', 'in-progress', 'blocked', 'on-hold']);
   const val = String(value || '').toLowerCase();
+  if (!allowed.has(val)) {
+    return i.reply({ content: 'Invalid status.', ephemeral: true });
+  }
 
   await store.upsertProject({ id: pid, status: val });
   const project = await store.getProjectById(pid);
 
   return i.update({
     content: `Status set to **${project.status}**.`,
-    components: [buildStatusRow(project)]
+    components: [buildStatusRow(project)],
   });
 }
+
 
 // Clicked: Close
 if (i.isButton() && i.customId.startsWith('panel:close:')) {
