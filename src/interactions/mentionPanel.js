@@ -152,6 +152,9 @@ async function postTriggerIntakeMessages(client, project, report, authorId) {
 
 export function wireInteractions(client) {
 
+  console.log('[mentionPanel] handlers wired');
+  // ... (rest unchanged)
+  
   async function showPanel(msg, project) {
     const embed = new EmbedBuilder()
       .setTitle(`Project Panel — ${project.name}`)
