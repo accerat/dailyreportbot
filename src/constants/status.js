@@ -14,14 +14,6 @@ export const STATUS_LABEL = {
   [STATUS.COMPLETE_NO_GOBACKS]: '100% Complete – No Gobacks',
 };
 
-export const STATUS_ICON = {
-  [STATUS.STARTED]: '🟦',
-  [STATUS.ON_HOLD]: '⏸️',
-  [STATUS.IN_PROGRESS]: '▶️',
-  [STATUS.LEAVING_INCOMPLETE]: '🚚',
-  [STATUS.COMPLETE_NO_GOBACKS]: '✅',
-};
-
 export function normalizeStatus(s) {
   if (!s) return STATUS.STARTED;
   const key = String(s).toLowerCase().trim();

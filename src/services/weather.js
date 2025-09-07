@@ -33,7 +33,6 @@ function hazardLines(hourly, tz) {
   if (!hourly?.hourly?.time) return [];
   const h = hourly.hourly;
   const times = h.time.map(t => DateTime.fromISO(t, { zone: tz }));
-
   const within24 = times.map((t, i) => ({ i, t }));
   const HEAVY_RAIN_IN_PER_HR = 0.25;
   const SNOW_IN_24H = 1.0;
@@ -42,8 +41,6 @@ function hazardLines(hourly, tz) {
   const COLD = 20;
 
   const lines = [];
-
-  // Thunderstorms windows
   let runStart = null;
   for (let k=0; k<within24.length; k++) {
     const {i,t} = within24[k];
