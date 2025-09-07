@@ -17,7 +17,7 @@ import { postWeatherHazardsIfNeeded } from '../services/weather.js';
 import { maybePingOnReport } from '../services/pings.js';
 import { STATUS, STATUS_LABEL, normalizeStatus } from '../constants/status.js';
 
-const TZ = process.env.TIMEZONE || 'America/Chicago'; // your default
+const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your org
 
 function buildProjectPanelEmbed(project){
   const statusKey = normalizeStatus(project.status);
@@ -25,7 +25,6 @@ function buildProjectPanelEmbed(project){
   const foreman = project.foreman_display || '—';
   const start = project.start_date || '—';
   const reminder = project.reminder_time || '—';
-  const isClosed = project.is_closed === true;
 
   return new EmbedBuilder()
     .setTitle(`Project Panel — ${project.name}`)
@@ -35,7 +34,6 @@ function buildProjectPanelEmbed(project){
       { name: 'Start Date', value: String(start), inline: true },
       { name: 'Reminder Time', value: String(reminder), inline: true },
       ...(project.thread_channel_id ? [{ name: 'Thread', value: `<#${project.thread_channel_id}>`, inline: true }] : []),
-      { name: 'Closed?', value: isClosed ? 'Yes' : 'No', inline: true },
     );
 }
 
@@ -44,14 +42,6 @@ function rowMain(project){
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
-  );
-}
-
-function rowCloseReopen(project){
-  const isClosed = project.is_closed === true;
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`proj:close:${project.id}`).setLabel('Close').setStyle(ButtonStyle.Danger).setDisabled(isClosed),
-    new ButtonBuilder().setCustomId(`proj:reopen:${project.id}`).setLabel('Reopen').setStyle(ButtonStyle.Success).setDisabled(!isClosed),
   );
 }
 
@@ -109,8 +99,7 @@ function parseFromSynopsis(text){
 async function showPanel(msg, project){
   const embed = buildProjectPanelEmbed(project);
   const row1 = rowMain(project);
-  const row2 = rowCloseReopen(project);
-  const rows = [row1, row2].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
+  const rows = [row1].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
   try{
     await msg.reply({ embeds: [embed], components: rows });
   }catch{
@@ -153,7 +142,7 @@ export function wireInteractions(client){
         const health = Number(i.fields.getTextInputValue('health') || '0');
         const { blockers, plan } = parseFromSynopsis(synopsis);
 
-        const now = DateTime.now().setZone('America/Chicago'); // your existing report date convention
+        const now = DateTime.now().setZone('America/Chicago');
         const report = {
           project_id: project.id,
           author_user_id: i.user.id,
@@ -271,21 +260,6 @@ export function wireInteractions(client){
           }
         }).catch(()=>{});
         return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
-      }
-
-      if (i.isButton() && i.customId.startsWith('proj:close:')){
-        const pid = Number(i.customId.split(':').pop());
-        const p = await store.getProjectById(pid);
-        if (!p) return i.reply({ content: 'Project not found.', ephemeral: true });
-        await store.closeProjectByThread(p.thread_channel_id, { reason: 'panel', closedBy: i.user.id });
-        return i.reply({ content: 'Project closed.', ephemeral: true });
-      }
-      if (i.isButton() && i.customId.startsWith('proj:reopen:')){
-        const pid = Number(i.customId.split(':').pop());
-        const p = await store.getProjectById(pid);
-        if (!p) return i.reply({ content: 'Project not found.', ephemeral: true });
-        await store.reopenProjectByThread(p.thread_channel_id, { reopenedBy: i.user.id });
-        return i.reply({ content: 'Project reopened.', ephemeral: true });
       }
     }catch(e){
       console.error('Interaction handler error:', e);
