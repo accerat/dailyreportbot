@@ -2,149 +2,139 @@
 import { DateTime } from 'luxon';
 import { ChannelType } from 'discord.js';
 import * as store from '../db/store.js';
-import { STATUS_LABEL, normalizeStatus } from '../constants/status.js';
 
 const CT = 'America/Chicago';
 
-function truncate(str, n) {
-  str = String(str ?? '');
-  return str.length > n ? (str.slice(0, n-1) + '…') : str;
+function pad(s, w) { return String(s ?? '').padEnd(w, ' '); }
+function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+function parseMDY(s) {
+  if (!s) return null;
+  // Accept 'M/D/YYYY' or 'MM/DD/YYYY'
+  const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!m) return null;
+  const [_, mo, da, yr] = m;
+  return DateTime.fromObject({ year: +yr, month: +mo, day: +da }, { zone: CT });
 }
-function pad(str, w) { return String(str ?? '').padEnd(w, ' '); }
 
-/**
- * Return a ThreadChannel (or TextBased channel) ready to receive messages for today's summary.
- * Supports:
- *  - Env points to a THREAD: send header into that thread and return it.
- *  - Env points to a TEXT channel: create/find today's thread; post header.
- *  - Env points to a FORUM: create/find today's forum post with first message; return the created thread.
- */
-async function getOrCreateDailyThread(client) {
-  const parentId = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
-  if (!parentId) return null;
+async function resolveTargetChannel(client) {
+  const id = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
+  if (!id) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID is not set');
 
-  const ch = await client.channels.fetch(parentId);
-  const today = DateTime.now().setZone(CT).toISODate();
-  const threadName = `${today} — Project Daily Summary`;
+  const ch = await client.channels.fetch(id);
 
-  // If the env is already a thread id, use it directly and ensure header exists
+  // If it's a THREAD: post directly in it
   if (typeof ch?.isThread === 'function' && ch.isThread()) {
-    // Post header if the thread has no messages yet
-    try {
-      const fetched = await ch.messages.fetch({ limit: 1 }).catch(() => null);
-      if (!fetched || fetched.size === 0) {
-        await ch.send({ content: `📊 ${threadName}` });
-      }
-    } catch {}
     return ch;
   }
 
-  // Forum parent: create daily forum post w/ first message
+  // If it's a normal TEXT channel: post directly in it (no auto thread creation)
+  if (ch?.type === ChannelType.GuildText || (typeof ch?.isTextBased === 'function' && ch.isTextBased())) {
+    return ch;
+  }
+
+  // Forums require creating a new post (thread) per message; that contradicts the user's desired behavior.
   if (ch?.type === ChannelType.GuildForum) {
-    // Try to find an existing post/thread by name first
-    try {
-      const act = await ch.threads.fetchActive();
-      let t = act?.threads?.find(t => t.name === threadName);
-      if (!t) {
-        const arch = await ch.threads.fetchArchived();
-        t = arch?.threads?.find(t => t.name === threadName);
-      }
-      if (t) return t;
-    } catch {}
-    const thread = await ch.threads.create({
-      name: threadName,
-      message: { content: `📊 ${threadName}`, allowedMentions: { parse: [] } },
-    });
-    return thread;
+    throw new Error('Daily summary target is a Forum. Please set PROJECT_DAILY_SUMMARIES_FORUM_ID to a THREAD or TEXT channel.');
   }
 
-  // Text channel (GuildText or similar): create/find a thread and post header
-  if (ch?.type === ChannelType.GuildText || typeof ch?.isTextBased === 'function' && ch.isTextBased()) {
-    // search active/archived for today's name
-    try {
-      const act = await ch.threads.fetchActive();
-      let t = act?.threads?.find(t => t.name === threadName);
-      if (!t) {
-        const arch = await ch.threads.fetchArchived();
-        t = arch?.threads?.find(t => t.name === threadName);
-      }
-      if (t) return t;
-    } catch {}
-    const thread = await ch.threads.create({ name: threadName, autoArchiveDuration: 1440 });
-    await thread.send({ content: `📊 ${threadName}`, allowedMentions: { parse: [] } });
-    return thread;
-  }
-
-  throw new Error(`Unsupported channel type for ${parentId}`);
+  throw new Error(`Unsupported channel type for ${id}`);
 }
 
-export async function postDailySummaryAll() {
-  const thread = await getOrCreateDailyThread(global.client);
-  if (!thread) return 0;
+function projectIsActiveToday(p, today) {
+  // paused projects are not active
+  if (p.paused) return false;
 
-  const projects = await store.allSummaryProjects();
+  // If there is a completion_date in the past, it's no longer active
+  const comp = parseMDY(p.completion_date);
+  if (comp && comp < today.startOf('day')) return false;
 
-  // resolve the "latest report" function available in store
-  const latestFn =
-    (typeof store.latestReport === 'function' && store.latestReport) ||
-    (typeof store.latestDailyReport === 'function' && store.latestDailyReport) ||
-    (typeof store.lastReportForProject === 'function' && store.lastReportForProject) ||
-    null;
+  // If start_date exists and is in the future, not active yet
+  const start = parseMDY(p.start_date);
+  if (start && start.startOf('day') > today.startOf('day')) return false;
 
-  const countMissedFn = (typeof store.countMissed === 'function' && store.countMissed) || null;
+  // Otherwise treat as active
+  return true;
+}
 
+async function missedTodayFlag(project, todayISO) {
+  // Only show missed for projects that are active today
+  const today = DateTime.fromISO(todayISO, { zone: CT });
+  if (!projectIsActiveToday(project, today)) return '';
+
+  const ctx = await store.load();
+  const hasToday = (ctx.daily_reports || []).some(r =>
+    r.project_id === project.id && r.report_date === todayISO
+  );
+  return hasToday ? '' : '⚠️ Missed today';
+}
+
+export async function postDailySummaryAll(clientParam) {
+  const client = clientParam || global.client;
+  const target = await resolveTargetChannel(client);
+  const todayISO = DateTime.now().setZone(CT).toISODate();
+
+  // Fetch projects
+  let projects = [];
+  if (typeof store.allSummaryProjects === 'function') {
+    projects = await store.allSummaryProjects();
+  } else if (typeof store.load === 'function') {
+    const ctx = await store.load();
+    projects = ctx.projects || [];
+  }
+
+  // Build rows
   const rows = await Promise.all(projects.map(async (p) => {
-    const statusKey = normalizeStatus(p.status);
-    const status = STATUS_LABEL[statusKey] || 'Started';
     const foreman = p.foreman_display || '—';
-    const latest = latestFn ? await latestFn(p.id) : null;
+    const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
     const start = p.start_date || '—';
-    const anticipated = p.anticipated_end || '—';
-    const totalHrs = (latest && (latest.cum_man_hours ?? latest.total_man_hours)) ?? p.total_hours ?? '—';
-    const flags = countMissedFn ? ((await countMissedFn(p.id)) ? '⚠️ Missed' : '') : '';
-    return { name: p.name, status, foreman, start, anticipated, totalHrs, flags };
+    const anticipated = p.completion_date || p.anticipated_end || '—';
+
+    // latest totals if present
+    let totalHrs = '—';
+    try {
+      if (typeof store.latestReport === 'function') {
+        const latest = await store.latestReport(p.id);
+        if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
+          totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
+        }
+      }
+    } catch {}
+
+    const flag = await missedTodayFlag(p, todayISO);
+    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag };
   }));
 
-  const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flags (ever)'];
-  const maxName   = Math.min(Math.max(headers[0].length, ...rows.map(r => r.name.length)), 36);
-  const maxStatus = Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 24);
-  const maxFore   = Math.min(Math.max(headers[2].length, ...rows.map(r => String(r.foreman).length)), 18);
-  const maxStart  = Math.max(headers[3].length, ...rows.map(r => String(r.start).length));
-  const maxEnd    = Math.max(headers[4].length, ...rows.map(r => String(r.anticipated).length));
-  const maxHrs    = Math.max(headers[5].length, ...rows.map(r => String(r.totalHrs).length));
-  const maxFlags  = Math.min(Math.max(headers[6].length, ...rows.map(r => String(r.flags).length)), 50);
+  const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
+  const widths = [
+    Math.min(Math.max(headers[0].length, ...rows.map(r => String(r.name).length)), 36),
+    Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 24),
+    Math.min(Math.max(headers[2].length, ...rows.map(r => String(r.foreman).length)), 18),
+    Math.max(headers[3].length, ...rows.map(r => String(r.start).length)),
+    Math.max(headers[4].length, ...rows.map(r => String(r.anticipated).length)),
+    Math.max(headers[5].length, ...rows.map(r => String(r.totalHrs).length)),
+    Math.min(Math.max(headers[6].length, ...rows.map(r => String(r.flag).length)), 20),
+  ];
 
-  const headerLine = [
-    pad(headers[0], maxName),
-    pad(headers[1], maxStatus),
-    pad(headers[2], maxFore),
-    pad(headers[3], maxStart),
-    pad(headers[4], maxEnd),
-    pad(headers[5], maxHrs),
-    pad(headers[6], maxFlags),
-  ].join('  ');
-
-  const sepLine = [
-    '-'.repeat(maxName),
-    '-'.repeat(maxStatus),
-    '-'.repeat(maxFore),
-    '-'.repeat(maxStart),
-    '-'.repeat(maxEnd),
-    '-'.repeat(maxHrs),
-    '-'.repeat(maxFlags),
-  ].join('  ');
+  const headerLine = headers.map((h, i) => pad(h, widths[i])).join('  ');
+  const sepLine = widths.map(w => '-'.repeat(w)).join('  ');
 
   const bodyLines = rows.map(r => [
-    pad(truncate(r.name, maxName), maxName),
-    pad(truncate(r.status, maxStatus), maxStatus),
-    pad(truncate(r.foreman, maxFore), maxFore),
-    pad(r.start, maxStart),
-    pad(r.anticipated, maxEnd),
-    pad(String(r.totalHrs), maxHrs),
-    pad(truncate(r.flags, maxFlags), maxFlags),
+    pad(trunc(r.name, widths[0]), widths[0]),
+    pad(trunc(r.status, widths[1]), widths[1]),
+    pad(trunc(r.foreman, widths[2]), widths[2]),
+    pad(String(r.start), widths[3]),
+    pad(String(r.anticipated), widths[4]),
+    pad(String(r.totalHrs), widths[5]),
+    pad(trunc(r.flag, widths[6]), widths[6]),
   ].join('  '));
 
-  const msg = ['```', headerLine, sepLine, ...bodyLines, '```'].join('\n');
-  await thread.send({ content: msg, allowedMentions: { parse: [] } });
+  const title = `📊 ${todayISO} — Project Daily Summary`;
+  const table = ['```', headerLine, sepLine, ...bodyLines, '```'].join('\n');
+
+  // For a THREAD, we just post the title then the table; for TEXT channel, same.
+  await target.send({ content: title, allowedMentions: { parse: [] } });
+  await target.send({ content: table, allowedMentions: { parse: [] } });
+
   return rows.length;
 }
