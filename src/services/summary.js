@@ -10,58 +10,65 @@ function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n -
 
 function parseMDY(s) {
   if (!s) return null;
-  // Accept 'M/D/YYYY' or 'MM/DD/YYYY'
   const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (!m) return null;
   const [_, mo, da, yr] = m;
   return DateTime.fromObject({ year: +yr, month: +mo, day: +da }, { zone: CT });
 }
 
-async function resolveTargetChannel(client) {
-  const id = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
-  if (!id) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID is not set');
+function norm(val) {
+  return String(val ?? '').toLowerCase().replace(/[\s_\-–—]+/g, ' ').trim();
+}
 
-  const ch = await client.channels.fetch(id);
+function isOnHold(p) {
+  const s = norm(p.status);
+  return p.paused === true || s.includes('hold') || s === 'on hold';
+}
 
-  // If it's a THREAD: post directly in it
-  if (typeof ch?.isThread === 'function' && ch.isThread()) {
-    return ch;
+function isComplete(p, today) {
+  const s = norm(p.status);
+  // Treat anything that clearly denotes completion as complete, but exclude "incomplete" + "leaving"
+  if (s && s.includes('complete') && !s.includes('incomplete') && !s.includes('leaving')) {
+    return true;
   }
-
-  // If it's a normal TEXT channel: post directly in it (no auto thread creation)
-  if (ch?.type === ChannelType.GuildText || (typeof ch?.isTextBased === 'function' && ch.isTextBased())) {
-    return ch;
+  // Common boolean flags
+  if (p.is_closed === true || p.closed === true || p.completed === true || p.complete === true) {
+    return true;
   }
-
-  // Forums require creating a new post (thread) per message; that contradicts the user's desired behavior.
-  if (ch?.type === ChannelType.GuildForum) {
-    throw new Error('Daily summary target is a Forum. Please set PROJECT_DAILY_SUMMARIES_FORUM_ID to a THREAD or TEXT channel.');
-  }
-
-  throw new Error(`Unsupported channel type for ${id}`);
+  // Date-based completion
+  const comp = parseMDY(p.completion_date) || parseMDY(p.completed_date) || parseMDY(p.end_date);
+  if (comp && comp.startOf('day') <= today.startOf('day')) return true;
+  return false;
 }
 
 function projectIsActiveToday(p, today) {
-  // paused projects are not active
-  if (p.paused) return false;
-
-  // If there is a completion_date in the past, it's no longer active
-  const comp = parseMDY(p.completion_date);
-  if (comp && comp < today.startOf('day')) return false;
-
-  // If start_date exists and is in the future, not active yet
+  if (isOnHold(p)) return false;
+  if (isComplete(p, today)) return false;
+  // Not active if start_date is in the future
   const start = parseMDY(p.start_date);
   if (start && start.startOf('day') > today.startOf('day')) return false;
-
-  // Otherwise treat as active
   return true;
 }
 
+async function resolveTargetChannel(client) {
+  const id = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
+  if (!id) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID is not set');
+  const ch = await client.channels.fetch(id);
+
+  // Post directly in a THREAD
+  if (typeof ch?.isThread === 'function' && ch.isThread()) return ch;
+  // Or directly in a TEXT channel (no auto child threads)
+  if (ch?.type === ChannelType.GuildText || (typeof ch?.isTextBased === 'function' && ch.isTextBased())) return ch;
+  // Forums always create posts/threads; not desired here
+  if (ch?.type === ChannelType.GuildForum) {
+    throw new Error('Daily summary target is a Forum. Set PROJECT_DAILY_SUMMARIES_FORUM_ID to a THREAD or TEXT channel.');
+  }
+  throw new Error(`Unsupported channel type for ${id}`);
+}
+
 async function missedTodayFlag(project, todayISO) {
-  // Only show missed for projects that are active today
   const today = DateTime.fromISO(todayISO, { zone: CT });
   if (!projectIsActiveToday(project, today)) return '';
-
   const ctx = await store.load();
   const hasToday = (ctx.daily_reports || []).some(r =>
     r.project_id === project.id && r.report_date === todayISO
@@ -132,7 +139,6 @@ export async function postDailySummaryAll(clientParam) {
   const title = `📊 ${todayISO} — Project Daily Summary`;
   const table = ['```', headerLine, sepLine, ...bodyLines, '```'].join('\n');
 
-  // For a THREAD, we just post the title then the table; for TEXT channel, same.
   await target.send({ content: title, allowedMentions: { parse: [] } });
   await target.send({ content: table, allowedMentions: { parse: [] } });
 
