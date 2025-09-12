@@ -68,14 +68,18 @@ function showReportModal(interaction, project){
   const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (people, hours)').setPlaceholder('e.g., 4, 32 or 4p 32h').setStyle(TextInputStyle.Short).setRequired(false);
   const health = new TextInputBuilder().setCustomId('health').setLabel('Health score 1–5').setStyle(TextInputStyle.Short).setRequired(false);
 
-    modal.addComponents(
+      const rows = [
     new ActionRowBuilder().addComponents(synopsis),
     new ActionRowBuilder().addComponents(pct),
     new ActionRowBuilder().addComponents(completion),
     new ActionRowBuilder().addComponents(labor),
     new ActionRowBuilder().addComponents(health),
-  );
-return interaction.showModal(modal);
+  ];
+  // SAFEGUARD: Discord allows max 5 rows in a modal
+  const limited = rows.slice(0, 5);
+  try { console.log('[mentionPanel] modal rows =', limited.length); } catch {}
+  modal.addComponents(...limited);
+  return interaction.showModal(modal);
 }
 
 function parseLabor(text){
