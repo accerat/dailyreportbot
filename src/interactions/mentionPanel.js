@@ -66,7 +66,7 @@ function showReportModal(interaction, project){
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
   const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(false);
   const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (people, hours)').setPlaceholder('e.g., 4, 32 or 4p 32h').setStyle(TextInputStyle.Short).setRequired(false);
-  const health = new TextInputBuilder().setCustomId('health').setLabel('Health score 1–5').setStyle(TextInputStyle.Short).setRequired(false);
+  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent, 5=good)').setStyle(TextInputStyle.Short).setRequired(false);
 
       const rows = [
     new ActionRowBuilder().addComponents(synopsis),
