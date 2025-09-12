@@ -66,6 +66,12 @@ function showReportModal(interaction, project){
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
   const guys = new TextInputBuilder().setCustomId('guys').setLabel('# of workers on site').setStyle(TextInputStyle.Short).setRequired(false);
   const hours = new TextInputBuilder().setCustomId('hours').setLabel('Total man-hours today').setStyle(TextInputStyle.Short).setRequired(false);
+  const completion = new TextInputBuilder()
+    .setCustomId('completion_date')
+    .setLabel('Anticipated End Date (MM/DD/YYYY)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
   const health = new TextInputBuilder().setCustomId('health').setLabel('Health score 1–5').setStyle(TextInputStyle.Short).setRequired(false);
 
   modal.addComponents(
@@ -73,6 +79,7 @@ function showReportModal(interaction, project){
     new ActionRowBuilder().addComponents(pct),
     new ActionRowBuilder().addComponents(guys),
     new ActionRowBuilder().addComponents(hours),
+    new ActionRowBuilder().addComponents(completion),
     new ActionRowBuilder().addComponents(health),
   );
   return interaction.showModal(modal);
@@ -140,6 +147,7 @@ export function wireInteractions(client){
         const guys = Number(i.fields.getTextInputValue('guys') || '0');
         const hours = Number(i.fields.getTextInputValue('hours') || '0');
         const health = Number(i.fields.getTextInputValue('health') || '0');
+        const completion_date = (i.fields.getTextInputValue('completion_date') || '').trim();
         const { blockers, plan } = parseFromSynopsis(synopsis);
 
         const now = DateTime.now().setZone('America/Chicago');
@@ -153,6 +161,7 @@ export function wireInteractions(client){
           man_count: Number.isFinite(guys) ? guys : null,
           man_hours: Number.isFinite(hours) ? hours : null,
           health_score: Number.isFinite(health) && health>0 ? health : null,
+          completion_date: (completion_date || null),
           blockers: blockers || null,
           tomorrow_plan: plan || null,
           triggers: [],
@@ -160,7 +169,11 @@ export function wireInteractions(client){
         };
         await store.insertDailyReport(report);
 
-        const embed = new EmbedBuilder()
+        
+        if (completion_date) {
+          await store.updateProjectFields(project.id, { completion_date });
+        }
+const embed = new EmbedBuilder()
           .setTitle(`Daily Report — ${project.name}`)
           .setDescription(synopsis || '—')
           .addFields(
