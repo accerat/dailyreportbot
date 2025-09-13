@@ -62,7 +62,7 @@ async function ensureProject(thread){
 function showReportModal(interaction, project){
   const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
 
-  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Synopsis (add Blockers: / Plan:)').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('daily summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
   const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(false);
   const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (people, hours)').setPlaceholder('e.g., 4, 32 or 4p 32h').setStyle(TextInputStyle.Short).setRequired(false);
