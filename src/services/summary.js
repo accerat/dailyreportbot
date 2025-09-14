@@ -139,10 +139,11 @@ export async function postDailySummaryAll(clientParam) {
     } catch {}
 
     const flag = await missedTodayFlag(p, todayISO);
-    const _healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
+    const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
 const nowCT = DateTime.now().setZone(CT);
-const _isToday = (lastDT && lastDT.setZone(CT).startOf('day').toMillis() === nowCT.startOf('day').toMillis());
-const flagOut = _isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${_healthCell}`);
+const isToday = (lastDT && lastDT.setZone(CT).startOf('day').toMillis() === nowCT.startOf('day').toMillis());
+const flagOut = isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${healthCell}`);
+console.log('[summary] project', p.id, 'isToday=', isToday, 'lastText=', lastText, 'healthVal=', healthVal);
 return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: flagOut };
   }));
 
