@@ -99,12 +99,9 @@ export async function postDailySummaryAll(clientParam) {
 
     // latest totals if present
     let totalHrs = '—';
-    let _health = null;
-    let _lastDT = null;
-    let _lastText = null;
-    let _health = null;
-    let _lastDT = null;
-    let _lastText = null;
+    let healthVal = null;
+    let lastDT = null;
+    let lastText = null;
     try {
       if (typeof store.latestReport === 'function') {
         const latest = await store.latestReport(p.id);
@@ -118,13 +115,13 @@ export async function postDailySummaryAll(clientParam) {
           if (h == null && latest.meta) h = (latest.meta.health_score ?? latest.meta.health ?? latest.meta.healthScore);
           if (typeof h === 'string') { h = h.trim(); if (h === '') h = null; }
           const n = Number(h);
-          _health = Number.isFinite(n) ? n : null;
+          healthVal = Number.isFinite(n) ? n : null;
           // Derive last report timestamp
           let _lastStamp = latest.created_at ?? latest.createdAt ?? latest.timestamp ?? latest.submitted_at ?? latest.submittedAt ?? latest.date ?? latest.report_date ?? latest.reportDate;
           try {
             if (_lastStamp != null) {
               if (typeof _lastStamp === 'number') {
-                _lastDT = (_lastStamp > 1e12) ? DateTime.fromMillis(_lastStamp) : DateTime.fromSeconds(_lastStamp);
+                lastDT = (_lastStamp > 1e12) ? DateTime.fromMillis(_lastStamp) : DateTime.fromSeconds(_lastStamp);
               } else {
                 const s = String(_lastStamp).trim();
                 let dt = DateTime.fromISO(s);
@@ -132,21 +129,21 @@ export async function postDailySummaryAll(clientParam) {
                   const ms = Number(s);
                   if (Number.isFinite(ms)) dt = (ms > 1e12) ? DateTime.fromMillis(ms) : DateTime.fromSeconds(ms);
                 }
-                if (dt.isValid) _lastDT = dt;
+                if (dt.isValid) lastDT = dt;
               }
             }
           } catch {}
-          _lastText = _lastDT ? _lastDT.setZone(CT).toFormat('M/d h:mma') : (_lastStamp ? String(_lastStamp) : null);
+          lastText = lastDT ? lastDT.setZone(CT).toFormat('M/d h:mma') : (_lastStamp ? String(_lastStamp) : null);
         }
       }
     } catch {}
 
     const flag = await missedTodayFlag(p, todayISO);
-    const _healthCell = (_health != null ? `Health ${_health}/5` : 'Health —');
+    const _healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
 const nowCT = DateTime.now().setZone(CT);
-const _isToday = (_lastDT && _lastDT.setZone(CT).startOf('day').toMillis() === nowCT.startOf('day').toMillis());
-const _flagOut = _isToday ? (flag ?? '') : ((_lastText ? `Last daily ${_lastText}` : 'No daily yet') + ` • ${_healthCell}`);
-return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: _flagOut };
+const _isToday = (lastDT && lastDT.setZone(CT).startOf('day').toMillis() === nowCT.startOf('day').toMillis());
+const flagOut = _isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${_healthCell}`);
+return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: flagOut };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
