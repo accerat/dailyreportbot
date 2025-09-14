@@ -105,8 +105,19 @@ export async function postDailySummaryAll(clientParam) {
         if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
           totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
         }
-        // NEW: derive health from latest report if available
-        var _health = (latest && (latest.health_score ?? latest.health)) || null;
+        // NEW: derive health from latest report if available (with robust fallbacks)
+        var _health = null;
+        if (latest) {
+          let h = (
+            latest.health_score ?? latest.health ?? latest.healthScore ?? latest.health_rating ?? latest.healthscore
+          );
+          // check common nests
+          if (h == null && latest.details) h = (latest.details.health_score ?? latest.details.health ?? latest.details.healthScore);
+          if (h == null && latest.meta) h = (latest.meta.health_score ?? latest.meta.health ?? latest.meta.healthScore);
+          if (typeof h === 'string') { h = h.trim(); if (h === '') h = null; }
+          const n = Number(h);
+          _health = Number.isFinite(n) ? n : null;
+        }
       }
 
     } catch {}
