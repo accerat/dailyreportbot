@@ -1,0 +1,152 @@
+diff --git a/src/services/summary.js b/src/services/summary.js
+index 1111111..2222222 100644
+--- a/src/services/summary.js
++++ b/src/services/summary.js
+@@ -1,12 +1,95 @@
+ // src/services/summary.js
+ import { DateTime } from 'luxon';
+ import { ChannelType } from 'discord.js';
+ import * as store from '../db/store.js';
+ 
+ const CT = 'America/Chicago';
+ 
+ function pad(s, w) { return String(s ?? '').padEnd(w, ' '); }
+-function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
++function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
++
++// ---------- NEW HELPERS (robust last-daily + health detection) ----------
++const TS_KEYS = [
++  'timestamp','ts','time','date',
++  'created_at','createdAt','submitted_at','submittedAt',
++  'updated_at','updatedAt','report_date','reportDate',
++  'daily_date','dailyDate','entry_date','entryDate'
++];
++const HEALTH_KEYS = ['health_score','health','healthScore','health_rating','healthscore'];
++
++function firstVal(obj, keys) {
++  if (!obj) return null;
++  for (const k of keys) {
++    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];
++  }
++  return null;
++}
++
++function toDateTime(v) {
++  if (v == null) return null;
++  if (DateTime.isDateTime?.(v)) return v;
++  if (v instanceof Date) return DateTime.fromJSDate(v);
++  if (typeof v === 'number') {
++    // seconds or ms
++    if (v > 1e12) return DateTime.fromMillis(v);
++    if (v > 1e9) return DateTime.fromSeconds(v);
++    return DateTime.fromMillis(v);
++  }
++  if (typeof v === 'string') {
++    const s = v.trim();
++    if (/^\d{10,13}$/.test(s)) {
++      const n = +s;
++      return s.length >= 13 ? DateTime.fromMillis(n) : DateTime.fromSeconds(n);
++    }
++    let dt = DateTime.fromISO(s);
++    if (!dt.isValid) dt = parseMDY(s);
++    return dt?.isValid ? dt : null;
++  }
++  return null;
++}
++
++async function getLatestReportInfo(p) {
++  const candidates = [];
++  // 1) store.latestReport(p.id) if available
++  try {
++    if (typeof store.latestReport === 'function') {
++      const latest = await store.latestReport(p.id);
++      if (latest) candidates.push({ source: 'store.latestReport', obj: latest });
++    }
++  } catch (e) {
++    console.log('[summary latest] store.latestReport threw:', e?.message || e);
++  }
++
++  // 2) project-level single objects that might be the latest daily
++  const directKeys = ['latest_report','latest','last_report','daily_latest','daily','report','lastDaily','last_daily'];
++  for (const k of directKeys) {
++    if (p && p[k]) candidates.push({ source: `p.${k}`, obj: p[k] });
++  }
++  if (p?.meta?.latest_report) candidates.push({ source: 'p.meta.latest_report', obj: p.meta.latest_report });
++  if (p?.details?.latest_report) candidates.push({ source: 'p.details.latest_report', obj: p.details.latest_report });
++
++  // 3) arrays of reports
++  const arrayKeys = ['reports','dailies','daily_reports','dailyReports'];
++  for (const ak of arrayKeys) {
++    const arr = Array.isArray(p?.[ak]) ? p[ak] : null;
++    if (arr) {
++      for (let i = 0; i < arr.length; i++) candidates.push({ source: `p.${ak}[${i}]`, obj: arr[i] });
++    }
++  }
++
++  // Evaluate candidates by timestamp
++  let best = null;
++  for (const c of candidates) {
++    let ts = firstVal(c.obj, TS_KEYS);
++    if (ts == null && c.obj?.meta) ts = firstVal(c.obj.meta, TS_KEYS);
++    if (ts == null && c.obj?.details) ts = firstVal(c.obj.details, TS_KEYS);
++    const dt = toDateTime(ts);
++    if (dt && (!best || dt > best.dt)) best = { dt, report: c.obj, source: c.source, keys: Object.keys(c.obj || {}) };
++  }
++
++  if (best) return best;
++
++  // 4) last-resort: project-level last* timestamps
++  const projTs = firstVal(p, ['last_report_ts','lastDailyTs','lastReportAt','last_daily_ts','last_daily','last_report_time']);
++  const dt = toDateTime(projTs);
++  if (dt) return { dt, report: null, source: 'p.last*', keys: [] };
++  return null;
++}
+@@ -59,6 +142,33 @@ function isComplete(p, today) {
+   return false;
+ }
+ 
+ function projectIsActiveToday(p, today) {
+   if (isOnHold(p)) return false;
+   if (isComplete(p, today)) return false;
+   // Not active if start_date is in the future
+   const start = parseMDY(p.start_date);
+   if (start && start.startOf('day') > today.startOf('day')) return false;
+   return true;
+ }
+ 
+@@ -97,13 +207,31 @@ async function resolveTargetChannel(client) {
+   // Or directly in a TEXT channel (no auto child threads)
+   // (rest of file unchanged)
+ }
+ 
+@@ -100,20 +228,31 @@ export async function postDailySummaryAll(client) {
+-    let healthVal = null;
+-    let lastText = null;
+-    // (old logic removed)
+-    const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
+-    const flagOut = isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${healthCell}`);
+-    console.log('[summary] project', p.id, 'isToday=', isToday, 'lastText=', lastText, 'healthVal=', healthVal);
+-    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: flagOut };
++    // --- new robust latest-daily / health detection ---
++    const latestInfo = await getLatestReportInfo(p);
++    const lastDT = latestInfo?.dt ? latestInfo.dt.setZone(CT) : null;
++    const isToday = lastDT ? lastDT.hasSame(DateTime.now().setZone(CT), 'day') : false;
++
++    // health value
++    let healthVal = null;
++    if (latestInfo?.report) {
++      let h = firstVal(latestInfo.report,  HEALTH_KEYS);
++      if (h == null && latestInfo.report.details) h = firstVal(latestInfo.report.details, HEALTH_KEYS);
++      if (h == null && latestInfo.report.meta)    h = firstVal(latestInfo.report.meta,    HEALTH_KEYS);
++      const n = typeof h === 'string' ? parseFloat(h) : (typeof h === 'number' ? h : NaN);
++      if (Number.isFinite(n)) healthVal = n;
++    }
++
++    const lastText = lastDT ? lastDT.toFormat('M/d h:mma') : null;
++    console.log('[summary latest]', 'project', p.id, 'source=', latestInfo?.source || 'none', 'dt=', lastDT?.toISO() || null, 'health=', healthVal, latestInfo?.keys ? ('keys=' + latestInfo.keys.slice(0,10).join(',')) : '');
++
++    const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
++    const flagOut = isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${healthCell}`);
++    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: flagOut };
+ }
+ 
