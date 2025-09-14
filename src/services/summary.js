@@ -105,11 +105,15 @@ export async function postDailySummaryAll(clientParam) {
         if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
           totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
         }
+        // NEW: derive health from latest report if available
+        var _health = (latest && (latest.health_score ?? latest.health)) || null;
       }
+
     } catch {}
 
     const flag = await missedTodayFlag(p, todayISO);
-    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag };
+    const healthCell = (_health ? `Health ${_health}/5` : 'Health —');
+    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: (healthCell + (flag ? `  ${flag}` : '')) };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
