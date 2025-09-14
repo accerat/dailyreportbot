@@ -118,6 +118,13 @@ export async function postDailySummaryAll(clientParam) {
           const n = Number(h);
           _health = Number.isFinite(n) ? n : null;
         }
+        try {
+          const _keys = latest ? Object.keys(latest) : [];
+          console.log('[summary] project', p.id, 'latest keys:', _keys.join(','));
+          console.log('[summary] project', p.id, 'health candidates:', latest && (latest.health_score ?? null), latest && (latest.health ?? null), latest && (latest.healthScore ?? null), latest && (latest.health_rating ?? null));
+          console.log('[summary] project', p.id, 'resolved _health:', _health);
+        } catch {}
+
       }
 
     } catch {}
