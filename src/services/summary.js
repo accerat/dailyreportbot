@@ -102,6 +102,9 @@ export async function postDailySummaryAll(clientParam) {
     let _health = null;
     let _lastDT = null;
     let _lastText = null;
+    let _health = null;
+    let _lastDT = null;
+    let _lastText = null;
     try {
       if (typeof store.latestReport === 'function') {
         const latest = await store.latestReport(p.id);
