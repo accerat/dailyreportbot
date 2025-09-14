@@ -105,33 +105,15 @@ export async function postDailySummaryAll(clientParam) {
         if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
           totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
         }
-        // NEW: derive health from latest report if available (with robust fallbacks)
-        var _health = null;
-        if (latest) {
-          let h = (
-            latest.health_score ?? latest.health ?? latest.healthScore ?? latest.health_rating ?? latest.healthscore
-          );
-          // check common nests
-          if (h == null && latest.details) h = (latest.details.health_score ?? latest.details.health ?? latest.details.healthScore);
-          if (h == null && latest.meta) h = (latest.meta.health_score ?? latest.meta.health ?? latest.meta.healthScore);
-          if (typeof h === 'string') { h = h.trim(); if (h === '') h = null; }
-          const n = Number(h);
-          _health = Number.isFinite(n) ? n : null;
-        }
-        try {
-          const _keys = latest ? Object.keys(latest) : [];
-          console.log('[summary] project', p.id, 'latest keys:', _keys.join(','));
-          console.log('[summary] project', p.id, 'health candidates:', latest && (latest.health_score ?? null), latest && (latest.health ?? null), latest && (latest.healthScore ?? null), latest && (latest.health_rating ?? null));
-          console.log('[summary] project', p.id, 'resolved _health:', _health);
-        } catch {}
-
       }
-
     } catch {}
 
     const flag = await missedTodayFlag(p, todayISO);
-    const healthCell = (_health ? `Health ${_health}/5` : 'Health —');
-    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: (healthCell + (flag ? `  ${flag}` : '')) };
+    const _healthCell = (_health != null ? `Health ${_health}/5` : 'Health —');
+const nowCT = DateTime.now().setZone(CT);
+const _isToday = (_lastDT && _lastDT.setZone(CT).startOf('day').toMillis() === nowCT.startOf('day').toMillis());
+const _flagOut = _isToday ? (flag ?? '') : ((_lastText ? `Last daily ${_lastText}` : 'No daily yet') + ` • ${_healthCell}`);
+return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: _flagOut };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
