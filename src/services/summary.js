@@ -99,11 +99,41 @@ export async function postDailySummaryAll(clientParam) {
 
     // latest totals if present
     let totalHrs = '—';
+    let _health = null;
+    let _lastDT = null;
+    let _lastText = null;
     try {
       if (typeof store.latestReport === 'function') {
         const latest = await store.latestReport(p.id);
         if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
           totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
+        }
+        // Derive health
+        if (latest) {
+          let h = (latest.health_score ?? latest.health ?? latest.healthScore ?? latest.health_rating ?? latest.healthscore);
+          if (h == null && latest.details) h = (latest.details.health_score ?? latest.details.health ?? latest.details.healthScore);
+          if (h == null && latest.meta) h = (latest.meta.health_score ?? latest.meta.health ?? latest.meta.healthScore);
+          if (typeof h === 'string') { h = h.trim(); if (h === '') h = null; }
+          const n = Number(h);
+          _health = Number.isFinite(n) ? n : null;
+          // Derive last report timestamp
+          let _lastStamp = latest.created_at ?? latest.createdAt ?? latest.timestamp ?? latest.submitted_at ?? latest.submittedAt ?? latest.date ?? latest.report_date ?? latest.reportDate;
+          try {
+            if (_lastStamp != null) {
+              if (typeof _lastStamp === 'number') {
+                _lastDT = (_lastStamp > 1e12) ? DateTime.fromMillis(_lastStamp) : DateTime.fromSeconds(_lastStamp);
+              } else {
+                const s = String(_lastStamp).trim();
+                let dt = DateTime.fromISO(s);
+                if (!dt.isValid) {
+                  const ms = Number(s);
+                  if (Number.isFinite(ms)) dt = (ms > 1e12) ? DateTime.fromMillis(ms) : DateTime.fromSeconds(ms);
+                }
+                if (dt.isValid) _lastDT = dt;
+              }
+            }
+          } catch {}
+          _lastText = _lastDT ? _lastDT.setZone(CT).toFormat('M/d h:mma') : (_lastStamp ? String(_lastStamp) : null);
         }
       }
     } catch {}
