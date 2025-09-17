@@ -1,114 +1,84 @@
-#!/usr/bin/env node
 // scripts/patch-summary-latest.js
 // Usage: node scripts/patch-summary-latest.js ./src/services/summary.js
-// Inserts a small helper (coerceLatestFields) and a salvage block that fills
-// lastText/healthVal when they are coming back null.
+// Inserts a salvage helper & block to fill lastText/healthVal if null, plus logs.
+// Safe to re-run: will no-op if markers already present.
+import { readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
 
-import fs from 'fs';
-import path from 'path';
+const target = process.argv[2] || './src/services/summary.js';
+const abs = resolve(process.cwd(), target);
+let src = readFileSync(abs, 'utf8');
 
-const target = process.argv[2];
-if (!target) {
-  console.error('Usage: node scripts/patch-summary-latest.js ./src/services/summary.js');
-  process.exit(1);
-}
-
-const src = fs.readFileSync(target, 'utf8');
-
-const helper = `
-// === injected by scripts/patch-summary-latest.js ===
-function __flattenObj(obj, prefix='') {
-  const out = [];
-  if (!obj || typeof obj !== 'object') return out;
-  for (const [k,v] of Object.entries(obj)) {
-    const key = prefix ? prefix + '.' + k : k;
-    out.push([key, v]);
-    if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...__flattenObj(v, key));
-  }
-  return out;
-}
-function __firstMatch(flat, needles) {
-  const lower = flat.map(([k,v])=>[k.toLowerCase(),k,v]);
-  for (const n of needles) {
-    const idx = lower.findIndex(([lk])=>lk.includes(n));
-    if (idx >= 0) return { key: lower[idx][1], value: lower[idx][2], needle: n };
-  }
-  return null;
-}
-function coerceLatestFields(reportObj) {
-  const flat = __flattenObj(reportObj || {});
-  const ts    = __firstMatch(flat, ['timestamp','createdat','created_at','ts','time','date','submittedat','created']);
-  const text  = __firstMatch(flat, ['text','note','notes','desc','description','message','body','content','report','summary']);
-  const health= __firstMatch(flat, ['health','mood','wellness','score','rating','statusvalue']);
-  let healthVal = null;
-  if (health) {
-    const raw = health.value;
-    const n = typeof raw === 'number' ? raw : Number(raw);
-    healthVal = Number.isFinite(n) ? n : null;
-  }
-  return {
-    stampKey: ts?.key || null,
-    stampVal: ts?.value ?? null,
-    textKey: text?.key || null,
-    textVal: text?.value ?? null,
-    healthKey: health?.key || null,
-    healthRaw: health?.value ?? null,
-    healthVal
-  };
-}
-// === end injected ===
-`;
-
-// Only inject helper once
-let out = src.includes('function coerceLatestFields(') ? src : src.replace(/(\n)(export\s+|const\s+|async\s+function|function\s+)/, "\n" + helper + "$2");
-
-if (!out.includes('coerceLatestFields(')) {
-  console.log('[patch] helper already present or injection did not match earliest location; writing file unchanged.');
-  fs.writeFileSync(target, src, 'utf8');
+if (src.includes('/* COERCE_LATEST_FIELDS_START */')) {
+  console.log('[patch] Already patched:', target);
   process.exit(0);
 }
 
-// Try to add a salvage block right before the line that defines healthCell/flagOut.
-// We'll search for a place where both 'let healthVal' and 'let lastText' exist and insert after them.
+const helper = `
+/* COERCE_LATEST_FIELDS_START */
+function __coerceLatestFields(obj) {
+  if (!obj || typeof obj !== 'object') return {};
+  let cur = obj;
+  for (const k of ['data','doc','docs','snapshot','Item','Attributes','value']) {
+    if (cur && typeof cur === 'object' && cur[k]) cur = cur[k];
+  }
+  const out = {};
+  const setMaybe = (k,v) => { if (out[k]==null && v!=null) out[k]=v; };
+  const tsKeys = ['timestamp','time','createdAt','created_at','ts','date','dt','submittedAt','updatedAt','lastUpdated'];
+  for (const k of tsKeys) if (cur[k]) setMaybe('timestamp', cur[k]);
+  const txtKeys = ['text','content','body','note','daily','report','message','update','summary'];
+  for (const k of txtKeys) if (cur[k]) setMaybe('text', cur[k]);
+  const healthKeys = ['health','mood','score','status','rating','vibe'];
+  for (const k of healthKeys) if (cur[k]!=null) {
+    const n = Number(cur[k]); if (Number.isFinite(n)) setMaybe('health', n);
+  }
+  return out;
+}
+/* COERCE_LATEST_FIELDS_END */
+`;
 
-let inserted = false;
-out = out.replace(/(let\s+healthVal\s*=\s*null;[^]*?let\s+lastText\s*=\s*null;)/m, (m) => {
-  inserted = true;
-  return m + `
-
-    // --- injected salvage using coerceLatestFields ---
-    // If the existing pipeline fails to set these, we try to infer them directly from the latest report/status objects.
-    try {
-      const salvageObj = (typeof status === 'object' && status) || (typeof report === 'object' && report) || (typeof latest === 'object' && latest) || null;
-      const _coerced = coerceLatestFields(salvageObj);
-      if (healthVal == null && typeof _coerced.healthVal === 'number') healthVal = _coerced.healthVal;
-      if (lastText == null) {
-        const _s = _coerced.stampVal || _coerced.textVal;
-        if (_s != null) {
-          try {
-            // Format timestamp if it looks like one, else stringify
-            const maybeNum = Number(_s);
-            const d = Number.isFinite(maybeNum) && String(_s).length >= 10 ? new Date(maybeNum) : new Date(_s);
-            if (!isNaN(d.getTime())) {
-              const mm = String(d.getMonth()+1), dd = String(d.getDate()), hh = d.getHours()%12 || 12, min = String(d.getMinutes()).padStart(2,'0'), ampm = d.getHours()<12?'am':'pm';
-              lastText = `${mm}/${dd} ${hh}:${min}${ampm}`;
-            } else {
-              lastText = String(_s);
-            }
-          } catch { lastText = String(_s); }
-        }
-      }
-      console.log('[summary:meta] salvage', { projectId: p?.id, healthVal, lastText, _coerced });
-    } catch (e) {
-      console.warn('[summary:meta] salvage error', e?.message || e);
-    }
-    // --- end injected salvage ---
-  `;
-});
-
-if (!inserted) {
-  console.warn('[patch] Could not find the expected anchor to insert salvage block. Writing only the helper.');
+// Try to insert helper after imports
+const importBlockMatch = src.match(/^(?:import\\s.+\\n)+/m);
+if (importBlockMatch) {
+  const endIdx = importBlockMatch.index + importBlockMatch[0].length;
+  src = src.slice(0, endIdx) + helper + src.slice(endIdx);
+} else {
+  src = helper + src;
 }
 
-fs.writeFileSync(target, out, 'utf8');
-console.log('[patch] updated', target);
+// Insert salvage block before const flagOut =
+const flagIdx = src.indexOf('const flagOut');
+if (flagIdx === -1) {
+  console.error('[patch] Could not find "const flagOut" anchor — aborting without changes.');
+  process.exit(2);
+}
+
+const salvage = `
+// --- salvage latest fields if detection failed ---
+try {
+  if (typeof latest !== 'undefined' && (lastText == null || healthVal == null)) {
+    const _cf = __coerceLatestFields(latest);
+    if (lastText == null && _cf.timestamp) {
+      try {
+        const dt = (typeof DateTime !== 'undefined')
+          ? DateTime.fromISO(String(_cf.timestamp), { zone: CT }).isValid
+            ? DateTime.fromISO(String(_cf.timestamp), { zone: CT })
+            : DateTime.fromMillis(Number(_cf.timestamp), { zone: CT })
+          : null;
+        if (dt && dt.isValid) lastText = dt.toFormat('M/d h:mma');
+      } catch {}
+    }
+    if (healthVal == null && _cf.health != null) {
+      const n = Number(_cf.health);
+      if (Number.isFinite(n)) healthVal = n;
+    }
+    console.log('[summary:meta] salvage for', p?.id, _cf);
+  }
+} catch (e) { console.warn('[summary:meta] salvage error', String(e)); }
+// --- end salvage ---
+`;
+
+src = src.slice(0, flagIdx) + salvage + src.slice(flagIdx);
+
+writeFileSync(abs, src);
+console.log('[patch] Patched:', target);
