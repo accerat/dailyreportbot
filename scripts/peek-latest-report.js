@@ -1,96 +1,122 @@
+#!/usr/bin/env node
 // scripts/peek-latest-report.js
 // Usage: node scripts/peek-latest-report.js <projectId>
-// Prints the raw latest report and the derived fields used by summary.js
+// Prints the store exports, calls the best "latest" function it finds, and writes peek-report-<id>.json
 
+import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { DateTime } from 'luxon';
+import { fileURLToPath, pathToFileURL } from 'url';
 
-// Resolve repo root from this script location
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, '..');
+const __dirname  = path.dirname(__filename);
+const repoRoot   = path.resolve(__dirname, '..');
+const storePath  = path.resolve(repoRoot, 'src', 'db', 'store.js');
 
-const CT = 'America/Chicago';
-
-const store = await import(path.join(repoRoot, 'src', 'db', 'store.js')).then(m => m.default ?? m);
-
-function parseMDY(s) {
-  if (!s) return null;
-  const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (!m) return null;
-  const [, mo, da, yr] = m;
-  return DateTime.fromObject({ year: +yr, month: +mo, day: +da }, { zone: CT });
+if (!fs.existsSync(storePath)) {
+  console.error(`[peek] store.js not found at ${storePath}`);
+  process.exit(2);
 }
 
-function sniffLatestDailyAndHealth(latest) {
-  const today = DateTime.now().setZone(CT).startOf('day');
-  if (!latest || typeof latest !== 'object') {
-    return { isToday: false, lastText: null, healthVal: null };
-  }
-  const stampPaths = [
-    ['timestamp'], ['ts'], ['time'], ['date'], ['datetime'], ['updated_at'], ['updatedAt'],
-    ['created_at'], ['createdAt'],
-    ['reportDate'], ['report_date'], ['dailyDate'], ['daily_date'],
-    ['submitted_at'], ['submittedAt'],
-    ['meta','timestamp'], ['meta','updated_at'], ['meta','updatedAt'], ['meta','date'],
-    ['details','timestamp'], ['details','date'], ['details','updated_at'], ['details','updatedAt']
-  ];
-  let lastDT = null;
-  for (const pathArr of stampPaths) {
-    let v = latest;
-    for (const k of pathArr) v = v?.[k];
-    if (v == null) continue;
-    let dt = null;
-    if (typeof v === 'number' && isFinite(v)) {
-      dt = (v > 1e12) ? DateTime.fromMillis(v, { zone: CT }) : DateTime.fromSeconds(v, { zone: CT });
-    } else if (typeof v === 'string') {
-      const s = v.trim();
-      dt = DateTime.fromISO(s, { zone: CT });
-      if (!dt.isValid) dt = DateTime.fromRFC2822(s, { zone: CT });
-      if (!dt.isValid) {
-        const mdy = parseMDY(s);
-        if (mdy?.isValid) dt = mdy;
-      }
-    } else if (v && typeof v === 'object' && typeof v.seconds === 'number') {
-      dt = DateTime.fromSeconds(v.seconds, { zone: CT });
-    }
-    if (dt?.isValid) { lastDT = dt; break; }
-  }
-
-  const healthCandidates = [
-    latest?.health_score, latest?.health, latest?.healthScore, latest?.health_rating, latest?.healthscore,
-    latest?.details?.health_score, latest?.details?.health, latest?.details?.healthScore,
-    latest?.meta?.health_score, latest?.meta?.health, latest?.meta?.healthScore
-  ].filter(x => x != null);
-
-  let healthVal = null;
-  for (const h of healthCandidates) {
-    const n = typeof h === 'string' ? parseFloat(h) : Number(h);
-    if (Number.isFinite(n)) { healthVal = Math.max(1, Math.min(5, Math.round(n))); break; }
-    if (typeof h === 'string') {
-      const m = h.match(/(\d(?:\.\d+)?)/);
-      if (m) {
-        const nn = parseFloat(m[1]);
-        if (Number.isFinite(nn)) { healthVal = Math.max(1, Math.min(5, Math.round(nn))); break; }
-      }
-    }
-  }
-
-  const isToday = !!(lastDT && lastDT.startOf('day').equals(today));
-  const lastText = lastDT ? lastDT.setZone(CT).toFormat('M/d h:mma') : null;
-  return { isToday, lastText, healthVal, lastDT: lastDT?.toISO() ?? null };
+let store;
+try {
+  store = await import(pathToFileURL(storePath).href);
+} catch (e) {
+  console.error('[peek] failed to import store.js:', e?.stack || e);
+  process.exit(2);
 }
 
-const pid = process.argv[2];
-if (!pid) {
+const exportNames = Object.keys(store || {});
+console.log('[peek] store export names =', exportNames);
+
+const projectIdArg = process.argv[2];
+if (!projectIdArg) {
   console.error('Usage: node scripts/peek-latest-report.js <projectId>');
   process.exit(1);
 }
+const projectId = /^[0-9]+$/.test(projectIdArg) ? Number(projectIdArg) : projectIdArg;
 
-const latest = await (store.latestReport ? store.latestReport(pid) : Promise.resolve(null));
-console.log('[peek] keys =', latest ? Object.keys(latest) : null);
-console.dir(latest, { depth: 2, colors: false });
+const candidates = [
+  'latestReport','getLatestReport','latestDaily','getLatestDaily','latest',
+  'latestEntry','latestForProject','lastDaily','fetchLatestReport','getLatest'
+];
+let fnName = candidates.find(n => typeof store[n] === 'function');
 
-const derived = sniffLatestDailyAndHealth(latest);
+if (!fnName) {
+  // Fallback: first exported function with arity >= 1
+  fnName = exportNames.find(n => typeof store[n] === 'function' && store[n].length >= 1);
+}
+if (!fnName) {
+  console.error('[peek] No suitable function found on store.* that takes a projectId.');
+  process.exit(3);
+}
+console.log('[peek] selected function =', fnName);
+
+let report = null;
+try {
+  report = await store[fnName](projectId);
+} catch (e) {
+  console.warn(`[peek] calling ${fnName}(${projectId}) threw:`, e?.message || e);
+}
+
+if (!report) {
+  console.log('[peek] function returned null/undefined.');
+} else {
+  try {
+    const keys = Object.keys(report);
+    console.log('[peek] top-level keys =', keys);
+  } catch {}
+}
+
+function flatten(obj, prefix='') {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k,v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    out.push([key,v]);
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      out.push(...flatten(v, key));
+    }
+  }
+  return out;
+}
+
+function firstMatchKey(flat, needles) {
+  const lower = flat.map(([k,v]) => [k.toLowerCase(), k, v]);
+  for (const n of needles) {
+    const idx = lower.findIndex(([lk]) => lk.includes(n));
+    if (idx >= 0) return { key: lower[idx][1], value: lower[idx][2], needle: n };
+  }
+  return null;
+}
+
+const flat = flatten(report || {});
+const tsGuess    = firstMatchKey(flat, ['timestamp','createdat','created_at','ts','time','date','submittedat','created']);
+const textGuess  = firstMatchKey(flat, ['text','note','notes','desc','description','message','body','content','report','summary']);
+const healthGuess= firstMatchKey(flat, ['health','mood','wellness','score','rating','statusvalue']);
+
+let healthVal = null;
+if (healthGuess) {
+  const raw = healthGuess.value;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  healthVal = Number.isFinite(n) ? n : null;
+}
+
+const derived = {
+  tsKey: tsGuess?.key || null,
+  tsVal: tsGuess?.value ?? null,
+  textKey: textGuess?.key || null,
+  textVal: textGuess?.value ?? null,
+  healthKey: healthGuess?.key || null,
+  healthRaw: healthGuess?.value ?? null,
+  healthVal,
+};
+
 console.log('[peek] derived =', derived);
+
+const outPath = path.resolve(repoRoot, `peek-report-${projectId}.json`);
+try {
+  fs.writeFileSync(outPath, JSON.stringify({ projectId, fnName, report, derived }, null, 2));
+  console.log('[peek] wrote', outPath);
+} catch (e) {
+  console.warn('[peek] failed to write output file:', e?.message || e);
+}

@@ -1,122 +1,114 @@
+#!/usr/bin/env node
 // scripts/patch-summary-latest.js
-// Usage: node scripts/patch-summary-latest.js [path/to/src/services/summary.js]
-// Patches summary.js to robustly detect latest daily timestamp + health score.
+// Usage: node scripts/patch-summary-latest.js ./src/services/summary.js
+// Inserts a small helper (coerceLatestFields) and a salvage block that fills
+// lastText/healthVal when they are coming back null.
 
 import fs from 'fs';
 import path from 'path';
 
-const target = process.argv[2] || path.join('src', 'services', 'summary.js');
+const target = process.argv[2];
+if (!target) {
+  console.error('Usage: node scripts/patch-summary-latest.js ./src/services/summary.js');
+  process.exit(1);
+}
+
 const src = fs.readFileSync(target, 'utf8');
 
-function insertOnce(haystack, needle, insertion) {
-  if (haystack.includes(insertion.trim())) return haystack; // already present
-  const idx = haystack.indexOf(needle);
-  if (idx === -1) return haystack;
-  return haystack.slice(0, idx + needle.length) + "\n" + insertion + "\n" + haystack.slice(idx + needle.length);
-}
-
-// 1) Insert helper after CT constant (or after imports if CT not found)
-const helperBlock = `
-// --- injected sniff helper (idempotent) ---
-function sniffLatestDailyAndHealth(latest) {
-  try {
-    const today = DateTime.now().setZone(CT).startOf('day');
-    if (!latest || typeof latest !== 'object') {
-      return { isToday: false, lastText: null, healthVal: null };
-    }
-
-    // Candidate timestamp fields (top-level + nested)
-    const stampPaths = [
-      ['timestamp'], ['ts'], ['time'], ['date'], ['datetime'], ['updated_at'], ['updatedAt'],
-      ['created_at'], ['createdAt'],
-      ['reportDate'], ['report_date'], ['dailyDate'], ['daily_date'], ['submitted_at'], ['submittedAt'],
-      ['meta','timestamp'], ['meta','updated_at'], ['meta','updatedAt'], ['meta','date'],
-      ['details','timestamp'], ['details','date'], ['details','updated_at'], ['details','updatedAt']
-    ];
-
-    let lastDT = null;
-    for (const path of stampPaths) {
-      let v = latest;
-      for (const k of path) v = v?.[k];
-      if (v == null) continue;
-      let dt = null;
-      if (typeof v === 'number' && isFinite(v)) {
-        // seconds vs millis
-        dt = (v > 1e12) ? DateTime.fromMillis(v, { zone: CT }) : DateTime.fromSeconds(v, { zone: CT });
-      } else if (typeof v === 'string') {
-        const s = v.trim();
-        // try ISO first
-        dt = DateTime.fromISO(s, { zone: CT });
-        if (!dt.isValid) {
-          // try RFC2822
-          dt = DateTime.fromRFC2822(s, { zone: CT });
-        }
-        if (!dt.isValid && typeof parseMDY === 'function') {
-          try { dt = parseMDY(s); } catch {}
-        }
-      } else if (v && typeof v === 'object' && typeof v.seconds === 'number') {
-        // Firestore Timestamp-like
-        dt = DateTime.fromSeconds(v.seconds, { zone: CT });
-      }
-      if (dt && dt.isValid) { lastDT = dt; break; }
-    }
-
-    // Health from multiple aliases
-    const healthCandidates = [
-      latest?.health_score, latest?.health, latest?.healthScore, latest?.health_rating, latest?.healthscore,
-      latest?.details?.health_score, latest?.details?.health, latest?.details?.healthScore,
-      latest?.meta?.health_score, latest?.meta?.health, latest?.meta?.healthScore
-    ].filter(x => x != null);
-
-    let healthVal = null;
-    for (const h of healthCandidates) {
-      const n = typeof h === 'string' ? parseFloat(h) : Number(h);
-      if (Number.isFinite(n)) { healthVal = Math.max(1, Math.min(5, Math.round(n))); break; }
-      if (typeof h === 'string') {
-        // Parse strings like "3/5", "Good (4)"
-        const m = h.match(/(\d(?:\.\d+)?)/);
-        if (m) {
-          const nn = parseFloat(m[1]);
-          if (Number.isFinite(nn)) { healthVal = Math.max(1, Math.min(5, Math.round(nn))); break; }
-        }
-      }
-    }
-
-    const isToday = !!(lastDT && lastDT.startOf('day') <= today && lastDT.startOf('day').equals(today));
-    const lastText = lastDT ? lastDT.setZone(CT).toFormat('M/d h:mma') : null;
-    return { isToday, lastText, healthVal };
-  } catch (e) {
-    console.warn('[patch] sniffLatestDailyAndHealth error:', e);
-    return { isToday: false, lastText: null, healthVal: null };
+const helper = `
+// === injected by scripts/patch-summary-latest.js ===
+function __flattenObj(obj, prefix='') {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k,v] of Object.entries(obj)) {
+    const key = prefix ? prefix + '.' + k : k;
+    out.push([key, v]);
+    if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...__flattenObj(v, key));
   }
+  return out;
 }
-// --- end injected sniff helper ---
-`.trim();
-
-let out = src;
-if (out.includes('function sniffLatestDailyAndHealth(') === false) {
-  if (out.includes("const CT = 'America/Chicago';")) {
-    out = insertOnce(out, "const CT = 'America/Chicago';", "\n" + helperBlock + "\n");
-  } else {
-    // fallback: after luxon import
-    out = insertOnce(out, "import { DateTime } from 'luxon';", "\n" + helperBlock + "\n");
+function __firstMatch(flat, needles) {
+  const lower = flat.map(([k,v])=>[k.toLowerCase(),k,v]);
+  for (const n of needles) {
+    const idx = lower.findIndex(([lk])=>lk.includes(n));
+    if (idx >= 0) return { key: lower[idx][1], value: lower[idx][2], needle: n };
   }
+  return null;
+}
+function coerceLatestFields(reportObj) {
+  const flat = __flattenObj(reportObj || {});
+  const ts    = __firstMatch(flat, ['timestamp','createdat','created_at','ts','time','date','submittedat','created']);
+  const text  = __firstMatch(flat, ['text','note','notes','desc','description','message','body','content','report','summary']);
+  const health= __firstMatch(flat, ['health','mood','wellness','score','rating','statusvalue']);
+  let healthVal = null;
+  if (health) {
+    const raw = health.value;
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    healthVal = Number.isFinite(n) ? n : null;
+  }
+  return {
+    stampKey: ts?.key || null,
+    stampVal: ts?.value ?? null,
+    textKey: text?.key || null,
+    textVal: text?.value ?? null,
+    healthKey: health?.key || null,
+    healthRaw: health?.value ?? null,
+    healthVal
+  };
+}
+// === end injected ===
+`;
+
+// Only inject helper once
+let out = src.includes('function coerceLatestFields(') ? src : src.replace(/(\n)(export\s+|const\s+|async\s+function|function\s+)/, "\n" + helper + "$2");
+
+if (!out.includes('coerceLatestFields(')) {
+  console.log('[patch] helper already present or injection did not match earliest location; writing file unchanged.');
+  fs.writeFileSync(target, src, 'utf8');
+  process.exit(0);
 }
 
-// 2) Replace the local computation of health/lastText/flagOut with calls to the helper
-// We look for the block that defines healthVal/lastText then builds healthCell/flagOut.
-out = out.replace(
-  /let\s+healthVal\s*=\s*null;[\s\S]*?const\s+healthCell[\s\S]*?flagOut[\s\S]*?;/m,
-  `const { isToday, lastText, healthVal } = sniffLatestDailyAndHealth(latest);
-    const healthCell = (healthVal != null ? \`Health \${healthVal}/5\` : 'Health —');
-    const flagOut = isToday ? (flag ?? '') : ((lastText ? \`Last daily \${lastText}\` : 'No daily yet') + \` • \${healthCell}\`);
-    console.log('[summary] project', p.id, 'isToday=', isToday, 'lastText=', lastText, 'healthVal=', healthVal);`
-);
+// Try to add a salvage block right before the line that defines healthCell/flagOut.
+// We'll search for a place where both 'let healthVal' and 'let lastText' exist and insert after them.
 
-// 3) Write back if changed
-if (out !== src) {
-  fs.writeFileSync(target, out);
-  console.log(`[patch] Updated ${target}`);
-} else {
-  console.log('[patch] No changes applied (patterns not found or already patched).');
+let inserted = false;
+out = out.replace(/(let\s+healthVal\s*=\s*null;[^]*?let\s+lastText\s*=\s*null;)/m, (m) => {
+  inserted = true;
+  return m + `
+
+    // --- injected salvage using coerceLatestFields ---
+    // If the existing pipeline fails to set these, we try to infer them directly from the latest report/status objects.
+    try {
+      const salvageObj = (typeof status === 'object' && status) || (typeof report === 'object' && report) || (typeof latest === 'object' && latest) || null;
+      const _coerced = coerceLatestFields(salvageObj);
+      if (healthVal == null && typeof _coerced.healthVal === 'number') healthVal = _coerced.healthVal;
+      if (lastText == null) {
+        const _s = _coerced.stampVal || _coerced.textVal;
+        if (_s != null) {
+          try {
+            // Format timestamp if it looks like one, else stringify
+            const maybeNum = Number(_s);
+            const d = Number.isFinite(maybeNum) && String(_s).length >= 10 ? new Date(maybeNum) : new Date(_s);
+            if (!isNaN(d.getTime())) {
+              const mm = String(d.getMonth()+1), dd = String(d.getDate()), hh = d.getHours()%12 || 12, min = String(d.getMinutes()).padStart(2,'0'), ampm = d.getHours()<12?'am':'pm';
+              lastText = `${mm}/${dd} ${hh}:${min}${ampm}`;
+            } else {
+              lastText = String(_s);
+            }
+          } catch { lastText = String(_s); }
+        }
+      }
+      console.log('[summary:meta] salvage', { projectId: p?.id, healthVal, lastText, _coerced });
+    } catch (e) {
+      console.warn('[summary:meta] salvage error', e?.message || e);
+    }
+    // --- end injected salvage ---
+  `;
+});
+
+if (!inserted) {
+  console.warn('[patch] Could not find the expected anchor to insert salvage block. Writing only the helper.');
 }
+
+fs.writeFileSync(target, out, 'utf8');
+console.log('[patch] updated', target);
