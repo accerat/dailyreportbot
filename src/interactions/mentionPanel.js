@@ -62,11 +62,11 @@ async function ensureProject(thread){
 function showReportModal(interaction, project){
   const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
 
-  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('daily summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
-  const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(false);
-  const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (people, hours)').setPlaceholder('e.g., 4, 32 or 4p 32h').setStyle(TextInputStyle.Short).setRequired(false);
-  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent, 5=good)').setStyle(TextInputStyle.Short).setRequired(false);
+  const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(true);
+  const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (manpower, hours)').setPlaceholder('example = 4, 8 means 4 men 8 hours').setStyle(TextInputStyle.Short).setRequired(true);
+  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent problems, 5=all good)').setStyle(TextInputStyle.Short).setRequired(true);
 
       const rows = [
     new ActionRowBuilder().addComponents(synopsis),
