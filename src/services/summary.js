@@ -66,26 +66,58 @@ async function resolveTargetChannel(client) {
   throw new Error(`Unsupported channel type for ${id}`);
 }
 
-async async function missedTodayFlag(project, todayISO) {
+async function missedTodayFlag(project, todayISO) {
   const today = DateTime.fromISO(todayISO, { zone: CT });
   if (!projectIsActiveToday(project, today)) return '';
-  const ctx = await store.load();
-  const hasToday = (ctx.daily_reports || []).some(r =>
-    r.project_id === project.id && r.report_date === todayISO
-  );
-  if (hasToday) return '';
 
-  // Find the most recent prior daily (up to 30 days back)
-  for (let i = 1; i <= 30; i++) {
-    const d = today.minus({ days: i });
-    const dISO = d.toISODate();
-    const has = (ctx.daily_reports || []).some(r =>
-      r.project_id === project.id && r.report_date === dISO
-    );
-    if (has) return `Last daily ${d.toFormat('M/d')}`;
+  // Pull all reports and find the latest one for this project
+  const ctx = await store.load();
+  const reports = (ctx.daily_reports || []).filter(r => r.project_id === project.id);
+
+  if (!reports.length) {
+    return 'No daily yet • Health —';
   }
-  return 'No daily yet';
+
+  // newest by ISO date
+  reports.sort((a, b) => (a.report_date || '').localeCompare(b.report_date || ''));
+  const latest = reports[reports.length - 1] || null;
+
+  const latestISO = latest?.report_date || null;
+  if (!latestISO) {
+    return 'No daily yet • Health —';
+  }
+
+  // is today?
+  const isToday = (latestISO === todayISO);
+  if (isToday) return '';
+
+  // derive "M/D" text
+  let lastText = '';
+  try {
+    lastText = DateTime.fromISO(latestISO, { zone: CT }).toFormat('M/d');
+  } catch {
+    lastText = String(latestISO);
+  }
+
+  // derive health (prefer numeric property; otherwise parse from text)
+  let healthVal = null;
+  if (typeof latest.health === 'number') {
+    healthVal = Number.isFinite(latest.health) ? Math.max(1, Math.min(5, latest.health)) : null;
+  } else if (typeof latest.health === 'string') {
+    const n = Number(latest.health);
+    healthVal = Number.isFinite(n) ? Math.max(1, Math.min(5, n)) : null;
+  } else if (latest.text) {
+    const m = String(latest.text).match(/health\s*[:\-]?\s*(\d(?:\.\d)?)\s*\/?\s*5/i);
+    if (m) {
+      const n = Number(m[1]);
+      healthVal = Number.isFinite(n) ? Math.max(1, Math.min(5, n)) : null;
+    }
+  }
+
+  const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
+  return `Last daily ${lastText} • ${healthCell}`;
 }
+
 export async function postDailySummaryAll(clientParam) {
   const client = clientParam || global.client;
   const target = await resolveTargetChannel(client);
