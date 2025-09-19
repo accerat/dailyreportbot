@@ -5,63 +5,121 @@ import * as store from '../db/store.js';
 
 const CT = 'America/Chicago';
 
-// --- injected sniff helper (idempotent) ---
-function sniffLatestDailyAndHealth(latest) {
-  try {
-    const today = DateTime.now().setZone(CT).startOf('day');
-    if (!latest || typeof latest !== 'object') {
-      return { isToday: false, lastText: null, healthVal: null };
-    }
+function pad(s, w) { return String(s ?? '').padEnd(w, ' '); }
+function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
-    // Candidate timestamp fields (top-level + nested)
-    const stampPaths = [
-      ['timestamp'], ['ts'], ['time'], ['date'], ['datetime'], ['updated_at'], ['updatedAt'],
-      ['created_at'], ['createdAt'],
-      ['reportDate'], ['report_date'], ['dailyDate'], ['daily_date'], ['submitted_at'], ['submittedAt'],
-      ['meta','timestamp'], ['meta','updated_at'], ['meta','updatedAt'], ['meta','date'],
-      ['details','timestamp'], ['details','date'], ['details','updated_at'], ['details','updatedAt']
-    ];
+function parseMDY(s) {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!m) return null;
+  const [_, mo, da, yr] = m;
+  return DateTime.fromObject({ year: +yr, month: +mo, day: +da }, { zone: CT });
+}
 
-    let lastDT = null;
-    for (const path of stampPaths) {
-      let v = latest;
-      for (const k of path) v = v?.[k];
-      if (v == null) continue;
-      let dt = null;
-      if (typeof v === 'number' && isFinite(v)) {
-        // seconds vs millis
-        dt = (v > 1e12) ? DateTime.fromMillis(v, { zone: CT }) : DateTime.fromSeconds(v, { zone: CT });
-      } else if (typeof v === 'string') {
-        const s = v.trim();
-        // try ISO first
-        dt = DateTime.fromISO(s, { zone: CT });
-        if (!dt.isValid) {
-          // try RFC2822
-          dt = DateTime.fromRFC2822(s, { zone: CT });
+function norm(val) {
+  return String(val ?? '').toLowerCase().replace(/[\s_\-–—]+/g, ' ').trim();
+}
+
+function isOnHold(p) {
+  const s = norm(p.status);
+  return p.paused === true || s.includes('hold') || s === 'on hold';
+}
+
+function isComplete(p, today) {
+  const s = norm(p.status);
+  // Treat anything that clearly denotes completion as complete, but exclude "incomplete" + "leaving"
+  if (s && s.includes('complete') && !s.includes('incomplete') && !s.includes('leaving')) {
+    return true;
+  }
+  // Common boolean flags
+  if (p.is_closed === true || p.closed === true || p.completed === true || p.complete === true) {
+    return true;
+  }
+  // Date-based completion
+  const comp = parseMDY(p.completion_date) || parseMDY(p.completed_date) || parseMDY(p.end_date);
+  if (comp && comp.startOf('day') <= today.startOf('day')) return true;
+  return false;
+}
+
+function projectIsActiveToday(p, today) {
+  if (isOnHold(p)) return false;
+  if (isComplete(p, today)) return false;
+  // Not active if start_date is in the future
+  const start = parseMDY(p.start_date);
+  if (start && start.startOf('day') > today.startOf('day')) return false;
+  return true;
+}
+
+async function resolveTargetChannel(client) {
+  const id = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
+  if (!id) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID is not set');
+  const ch = await client.channels.fetch(id);
+
+  // Post directly in a THREAD
+  if (typeof ch?.isThread === 'function' && ch.isThread()) return ch;
+  // Or directly in a TEXT channel (no auto child threads)
+  if (ch?.type === ChannelType.GuildText || (typeof ch?.isTextBased === 'function' && ch.isTextBased())) return ch;
+  // Forums always create posts/threads; not desired here
+  if (ch?.type === ChannelType.GuildForum) {
+    throw new Error('Daily summary target is a Forum. Set PROJECT_DAILY_SUMMARIES_FORUM_ID to a THREAD or TEXT channel.');
+  }
+  throw new Error(`Unsupported channel type for ${id}`);
+}
+
+async async function missedTodayFlag(project, todayISO) {
+  const today = DateTime.fromISO(todayISO, { zone: CT });
+  if (!projectIsActiveToday(project, today)) return '';
+  const ctx = await store.load();
+  const hasToday = (ctx.daily_reports || []).some(r =>
+    r.project_id === project.id && r.report_date === todayISO
+  );
+  if (hasToday) return '';
+
+  // Find the most recent prior daily (up to 30 days back)
+  for (let i = 1; i <= 30; i++) {
+    const d = today.minus({ days: i });
+    const dISO = d.toISODate();
+    const has = (ctx.daily_reports || []).some(r =>
+      r.project_id === project.id && r.report_date === dISO
+    );
+    if (has) return `Last daily ${d.toFormat('M/d')}`;
+  }
+  return 'No daily yet';
+}
+export async function postDailySummaryAll(clientParam) {
+  const client = clientParam || global.client;
+  const target = await resolveTargetChannel(client);
+  const todayISO = DateTime.now().setZone(CT).toISODate();
+
+  // Fetch projects
+  let projects = [];
+  if (typeof store.allSummaryProjects === 'function') {
+    projects = await store.allSummaryProjects();
+  } else if (typeof store.load === 'function') {
+    const ctx = await store.load();
+    projects = ctx.projects || [];
+  }
+
+  // Build rows
+  const rows = await Promise.all(projects.map(async (p) => {
+    const foreman = p.foreman_display || '—';
+    const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
+    const start = p.start_date || '—';
+    const anticipated = p.completion_date || p.anticipated_end || '—';
+
+    // latest totals if present
+    let totalHrs = '—';
+    try {
+      if (typeof store.latestReport === 'function') {
+        const latest = await store.latestReport(p.id);
+        if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
+          totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
         }
-        if (!dt.isValid && typeof parseMDY === 'function') {
-          try { dt = parseMDY(s); } catch {}
-        }
-      } else if (v && typeof v === 'object' && typeof v.seconds === 'number') {
-        // Firestore Timestamp-like
-        dt = DateTime.fromSeconds(v.seconds, { zone: CT });
       }
-      if (dt && dt.isValid) { lastDT = dt; break; }
-    }
+    } catch {}
 
-    // Health from multiple aliases
-    const healthCandidates = [
-      latest?.health_score, latest?.health, latest?.healthScore, latest?.health_rating, latest?.healthscore,
-      latest?.details?.health_score, latest?.details?.health, latest?.details?.healthScore,
-      latest?.meta?.health_score, latest?.meta?.health, latest?.meta?.healthScore
-    ].filter(x => x != null);
-
-    const { isToday, lastText, healthVal } = sniffLatestDailyAndHealth(latest);
-    const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
-    const flagOut = isToday ? (flag ?? '') : ((lastText ? `Last daily ${lastText}` : 'No daily yet') + ` • ${healthCell}`);
-    console.log('[summary] project', p.id, 'isToday=', isToday, 'lastText=', lastText, 'healthVal=', healthVal);
-console.log('[summary] project', p.id, 'isToday=', isToday, 'lastText=', lastText, 'healthVal=', healthVal);
-return { name: p.name, status, foreman, start, anticipated, totalHrs, flag: flagOut };
+    const flag = await missedTodayFlag(p, todayISO);
+    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
