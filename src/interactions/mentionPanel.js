@@ -7,6 +7,7 @@ import * as store from '../db/store.js';
 
 function log(...a){ console.log('[mentionPanel]', ...a); }
 
+// --- Helpers ---
 function parseScopeLines(text){
   if (!text) return [];
   const lines = String(text).split(/\r?\n/);
@@ -14,7 +15,9 @@ function parseScopeLines(text){
   for (let line of lines){
     let s = String(line).trim();
     if (!s) continue;
+    // Strip leading list marker: "1)", "1.", "1️⃣", "-", "•"
     s = s.replace(/^(?:\d+\s*[\)\.]|[\u0030-\u0039]\uFE0F?\u20E3|\s*[•-])\s*/u, '');
+    // Only keep the scope label (before status if present as " - ")
     const idx = s.indexOf(' - ');
     if (idx !== -1) s = s.slice(0, idx).trim();
     if (s) scopes.push(s);
@@ -37,6 +40,7 @@ async function fetchFirstPostContent(thread){
   return '';
 }
 
+// --- Panel row builder (used by your panel UI) ---
 export function buildPanelRow(project){
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
@@ -46,7 +50,9 @@ export function buildPanelRow(project){
   return row;
 }
 
+// --- Wire interactions & mention responder ---
 export function wireMentionPanel(client){
+  // Buttons / modal
   client.on('interactionCreate', async (i) => {
     try{
       if (i.isButton()){
@@ -77,6 +83,7 @@ export function wireMentionPanel(client){
         }
       }
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
+        // your existing submit handler should process this id
         return;
       }
     }catch(e){
@@ -84,9 +91,22 @@ export function wireMentionPanel(client){
       try{ await i.reply({ content: 'Error handling interaction.', flags: 64 }); }catch{}
     }
   });
+
+  // Minimal mention responder (health check + guidance)
+  client.on('messageCreate', async (m) => {
+    try{
+      if (m.author?.bot) return;
+      // Respond if the bot is mentioned in the message
+      if (m.mentions?.has?.(m.client.user)) {
+        await m.reply('✅ DailyReportBot is online.\nUse **Set Template / Refresh Template** in the panel, then **Open Daily Report**.');
+      }
+    }catch(e){ console.error(e); }
+  });
+
   log('wired');
 }
 
+// Build & show the Daily Report modal with prefilled Daily Summary
 async function showReportModal(interaction){
   const projectId = (interaction.customId || '').split(':')[2] || 'unknown';
 
@@ -94,7 +114,7 @@ async function showReportModal(interaction){
   try{
     const tpl = await store.getThreadTemplate(interaction.channel.id);
     if (tpl && Array.isArray(tpl.scopes) && tpl.scopes.length){
-      prefill = tpl.scopes.map((s, idx)=>`${idx+1}) ${s} - `).join('\n');
+      prefill = tpl.scopes.map((s, idx)=>`${idx+1}) ${s} - `).join('\\n');
     }
   }catch{}
 
@@ -114,5 +134,7 @@ async function showReportModal(interaction){
   log('modal rows = 5');
 }
 
+// Compatibility export
 export const wireInteractions = wireMentionPanel;
+
 export default { wireMentionPanel, buildPanelRow, wireInteractions };
