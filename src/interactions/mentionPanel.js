@@ -1,4 +1,4 @@
-// src/interactions/mentionPanel.js
+/* src/interactions/mentionPanel.js */
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle
@@ -115,4 +115,4 @@ async function showReportModal(interaction){
 }
 
 export const wireInteractions = wireMentionPanel;
-export default { wireMentionPanel, wireInteractions, buildPanelRow };
+export default { wireMentionPanel, buildPanelRow, wireInteractions };

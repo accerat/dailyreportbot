@@ -1,4 +1,4 @@
-// src/db/store.js
+/* src/db/store.js */
 import fs from 'fs';
 import path from 'path';
 const DATA_PATH = path.resolve(process.cwd(), 'data', 'store.json');

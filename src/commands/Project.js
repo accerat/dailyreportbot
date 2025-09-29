@@ -1,4 +1,4 @@
-// src/commands/Project.js
+/* src/commands/Project.js */
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 
 export function buildPanelRow(project){
