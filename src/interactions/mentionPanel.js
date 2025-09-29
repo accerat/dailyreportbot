@@ -13,6 +13,43 @@ import {
 } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
+
+function parseScopeLines(text){
+  if (!text) return [];
+  const lines = String(text).split(/\r?\n/);
+  const scopes = [];
+  const re = /^(?:\d+\s*[\)\.]|\d+\p{Emoji_Presentation}?|[\u0030-\u0039]\uFE0F?\u20E3)\s*|^\s*[•\-]\s*/u;
+  for (let line of lines){
+    line = String(line).trim();
+    if (!line) continue;
+    // Remove leading list markers like "1)", "1.", "1️⃣", "•"
+    line = line.replace(re, '').trim();
+    // Stop at ' - ' status if present
+    const idx = line.indexOf(' - ');
+    if (idx !== -1) line = line.slice(0, idx).trim();
+    // Heuristic: scope lines often contain '-' or '('; but accept any non-empty
+    if (line) scopes.push(line);
+  }
+  // Require at least 2 to avoid false positives
+  return scopes.length >= 2 ? scopes : [];
+}
+
+async function fetchFirstPostContent(thread){
+  try{
+    if (thread.fetchStarterMessage){
+      const starter = await thread.fetchStarterMessage();
+      if (starter && starter.content) return starter.content;
+    }
+  }catch(_){}
+  // Fallback: fetch first 10 messages and pick oldest
+  try{
+    const msgs = await thread.messages.fetch({ limit: 10 });
+    const oldest = [...msgs.values()].sort((a,b)=>a.createdTimestamp-b.createdTimestamp)[0];
+    return oldest?.content || '';
+  }catch(_){}
+  return '';
+}
+
 import { postWeatherHazardsIfNeeded } from '../services/weather.js';
 import { maybePingOnReport } from '../services/pings.js';
 import { STATUS, STATUS_LABEL, normalizeStatus } from '../constants/status.js';
@@ -40,6 +77,8 @@ function buildProjectPanelEmbed(project){
 function rowMain(project){
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`dr:settpl:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`dr:reftpl:${project.id}`).setLabel('Refresh Template').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
   );
@@ -59,10 +98,21 @@ async function ensureProject(thread){
   return p;
 }
 
-function showReportModal(interaction, project){
+async function showReportModal(interaction, project){
   const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
 
-  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  // Prefill Daily Summary (synopsis) from per-thread template, if available
+  let prefill = '';
+  try{
+    const thread = interaction.channel;
+    const tpl = thread ? await store.getThreadTemplate(thread.id) : null;
+    if (tpl && Array.isArray(tpl.scopes) && tpl.scopes.length){
+      prefill = tpl.scopes.map((s, idx)=>`${idx+1}) ${s} - `).join('\n');
+    }
+  }catch(e){ console.warn('Prefill template fetch failed:', e); }
+
+
+  const synopsis = new TextInputBuilder().setCustomId('synopsis'.setValue('<<PREFILL>>')).setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
   const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(true);
   const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (manpower, hours)').setPlaceholder('example = 4, 8 means 4 men 8 hours').setStyle(TextInputStyle.Short).setRequired(true);
