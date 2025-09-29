@@ -1,8 +1,9 @@
-// src/commands/project.js
+﻿// src/commands/project.js
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
 } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 
 import {
   getProjectByThread,
@@ -44,7 +45,7 @@ export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
   const threadId = interaction.channelId;
 
-  // Must already be a tracked project (we won’t silently create one)
+  // Must already be a tracked project (we wonâ€™t silently create one)
   const proj = await getProjectByThread(threadId);
   if (!proj) {
     return interaction.reply({
@@ -57,7 +58,7 @@ export async function execute(interaction) {
     const value = interaction.options.getString('value');
     if (!value) {
       const fields = [
-        `**Status:** ${proj.status ?? '—'}`,
+        `**Status:** ${proj.status ?? 'â€”'}`,
         `**Closed:** ${proj.is_closed ? 'Yes' : 'No'}`,
         proj.closed_reason ? `**Closed Reason:** ${proj.closed_reason}` : null,
       ].filter(Boolean);
@@ -76,7 +77,7 @@ export async function execute(interaction) {
     if (!updated) {
       return interaction.reply({ content: 'Could not close project.', ephemeral: true });
     }
-    const msg = [`🛑 Project closed.`];
+    const msg = [`ðŸ›‘ Project closed.`];
     if (reason) msg.push(`Reason: ${reason}`);
     return interaction.reply({ content: msg.join(' '), ephemeral: false });
   }
@@ -86,6 +87,6 @@ export async function execute(interaction) {
     if (!updated) {
       return interaction.reply({ content: 'Could not reopen project.', ephemeral: true });
     }
-    return interaction.reply({ content: '✅ Project re-opened.', ephemeral: false });
+    return interaction.reply({ content: 'âœ… Project re-opened.', ephemeral: false });
   }
 }

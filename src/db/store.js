@@ -1,4 +1,4 @@
-
+﻿
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -14,7 +14,7 @@ const defaultState = {
     uhc_forum_id: null,
     non_uhc_category_id: null,
     uhc_category_id: null,
-    project_category_id: null   // <— NEW single-category slot
+    project_category_id: null   // <â€” NEW single-category slot
   },
   projects: [],
   daily_reports: [],
@@ -167,7 +167,7 @@ export async function updateReportTriggers(reportId, triggers, authorUserId){
   await save(s);
   return r;
 }
-// v4 add — project status helpers (top-level)
+// v4 add â€” project status helpers (top-level)
 export async function setProjectStatusByThread(threadId, status) {
   const s = await load();
   const p = s.projects.find(x => x.thread_channel_id === threadId);
@@ -204,3 +204,22 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
 }
 
  // end added more exports
+
+// === Per-thread template helpers (appended) ===
+export async function getThreadTemplate(threadId){
+  const s = await load();
+  if (!s.thread_templates) s.thread_templates = {};
+  return s.thread_templates[threadId] || null;
+}
+export async function setThreadTemplate(threadId, scopes, { updatedBy } = {}){
+  const s = await load();
+  if (!s.thread_templates) s.thread_templates = {};
+  const clean = Array.isArray(scopes) ? scopes.map(x => String(x).trim()).filter(Boolean) : [];
+  s.thread_templates[threadId] = {
+    scopes: clean,
+    updatedBy: updatedBy || null,
+    updatedAt: Date.now(),
+  };
+  await save(s);
+  return s.thread_templates[threadId];
+}
