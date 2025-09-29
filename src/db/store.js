@@ -6,11 +6,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_FILE = join(__dirname, '../../data/store.json');
 //CHANGED DEFAULTSTATE 8/20 11:09pm 
-//const defaultState = {
-  thread_templates: {}, projects: [], daily_reports: [], trigger_events: [], reminder_log: [], missed_reports: [] };
+//const defaultState = { projects: [], daily_reports: [], trigger_events: [], reminder_log: [], missed_reports: [] };
 
 const defaultState = {
-  thread_templates: {},
   settings: {
     non_uhc_forum_id: null,
     uhc_forum_id: null,
@@ -206,20 +204,3 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
 }
 
  // end added more exports
-
-export async function getThreadTemplate(threadId){
-  const s = await load();
-  return s.thread_templates?.[threadId] || null;
-}
-export async function setThreadTemplate(threadId, scopes, { updatedBy } = {}){
-  const s = await load();
-  if (!s.thread_templates) s.thread_templates = {};
-  const clean = Array.isArray(scopes) ? scopes.map(x => String(x).trim()).filter(Boolean) : [];
-  s.thread_templates[threadId] = {
-    scopes: clean,
-    updatedBy: updatedBy || null,
-    updatedAt: Date.now(),
-  };
-  await save(s);
-  return s.thread_templates[threadId];
-}
