@@ -7,7 +7,6 @@ import * as store from '../db/store.js';
 
 function log(...a){ console.log('[mentionPanel]', ...a); }
 
-// --- Helpers ---
 function parseScopeLines(text){
   if (!text) return [];
   const lines = String(text).split(/\r?\n/);
@@ -15,15 +14,12 @@ function parseScopeLines(text){
   for (let line of lines){
     let s = String(line).trim();
     if (!s) continue;
-    // Strip leading list marker: "1)", "1.", "1️⃣", "-", "•"
     s = s.replace(/^(?:\d+\s*[\)\.]|[\u0030-\u0039]\uFE0F?\u20E3|\s*[•-])\s*/u, '');
-    // Only keep the scope label (before status dash if present)
     const idx = s.indexOf(' - ');
     if (idx !== -1) s = s.slice(0, idx).trim();
     if (s) scopes.push(s);
   }
-  // avoid false positives
-  return scopes.length >= 2 ? scopes : [];
+  return scopes;
 }
 
 async function fetchFirstPostContent(thread){
@@ -41,7 +37,6 @@ async function fetchFirstPostContent(thread){
   return '';
 }
 
-// --- Panel row builder ---
 export function buildPanelRow(project){
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
@@ -51,7 +46,6 @@ export function buildPanelRow(project){
   return row;
 }
 
-// --- Wire interactions ---
 export function wireMentionPanel(client){
   client.on('interactionCreate', async (i) => {
     try{
@@ -83,7 +77,6 @@ export function wireMentionPanel(client){
         }
       }
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
-        // no-op: your existing submit handler elsewhere handles it
         return;
       }
     }catch(e){
@@ -94,7 +87,6 @@ export function wireMentionPanel(client){
   log('wired');
 }
 
-// Build & show the Daily Report modal with prefilled Daily Summary
 async function showReportModal(interaction){
   const projectId = (interaction.customId || '').split(':')[2] || 'unknown';
 
@@ -122,4 +114,5 @@ async function showReportModal(interaction){
   log('modal rows = 5');
 }
 
-export default { wireMentionPanel, buildPanelRow };
+export const wireInteractions = wireMentionPanel;
+export default { wireMentionPanel, wireInteractions, buildPanelRow };
