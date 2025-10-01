@@ -10,8 +10,11 @@ const FILE = join(DATA_DIR, 'templates.json');
 async function load(){
   try{
     const s = await readFile(FILE, 'utf8');
-    return JSON.parse(s);
-  }catch(e){
+    const data = JSON.parse(s);
+    if (!data || typeof data !== 'object') return { byProjectId: {} };
+    data.byProjectId = data.byProjectId || {};
+    return data;
+  }catch{
     return { byProjectId: {} };
   }
 }
@@ -26,10 +29,17 @@ export async function getTemplateForProject(projectId){
   return d.byProjectId?.[String(projectId)] || '';
 }
 
-export async function setTemplateForProject(projectId, text){
+export async function setTemplateForProject(projectId, value){
   const d = await load();
   d.byProjectId = d.byProjectId || {};
-  d.byProjectId[String(projectId)] = String(text);
+  // allow string or object { body, end }
+  if (typeof value === 'string'){
+    d.byProjectId[String(projectId)] = value;
+  } else if (value && typeof value === 'object'){
+    d.byProjectId[String(projectId)] = { body: String(value.body || ''), end: String(value.end || '') };
+  } else {
+    d.byProjectId[String(projectId)] = '';
+  }
   await save(d);
 }
 
