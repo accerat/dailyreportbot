@@ -281,10 +281,7 @@ export function wireInteractions(client){
     await templates.setTemplateForProject(pid, { body, end });
     return i.reply({ content: 'Template saved.', ephemeral: true });
   }
-} else {
-          await templates.setTemplateForProject(pid, val);
-          return i.reply({ content: 'Template saved.', ephemeral: true });
-        }
+
       }
 if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const pid = Number(i.customId.split(':').pop());
