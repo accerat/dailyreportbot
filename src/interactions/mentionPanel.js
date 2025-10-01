@@ -1,171 +1,335 @@
-/* src/interactions/mentionPanel.js */
+// src/interactions/mentionPanel.js
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ModalBuilder, TextInputBuilder, TextInputStyle
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  Events,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  StringSelectMenuBuilder,
+  UserSelectMenuBuilder,
 } from 'discord.js';
+import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
+import * as templates from '../db/templates.js';
+import { postWeatherHazardsIfNeeded } from '../services/weather.js';
+import { maybePingOnReport } from '../services/pings.js';
+import { STATUS, STATUS_LABEL, normalizeStatus } from '../constants/status.js';
 
-const TAG = '[mentionPanel]';
-const log = (...a) => console.log(TAG, ...a);
+const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your org
 
-// --- Helpers ---
-function parseScopeLines(text){
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
-  const scopes = [];
-  for (let line of lines){
-    let s = String(line).trim();
-    if (!s) continue;
-    // Strip leading list markers: "1)", "1.", "1??", "-", "�"
-    s = s.replace(/^(?:\d+\s*[\)\.]|[\u0030-\u0039]\uFE0F?\u20E3|\s*[�-])\s*/u, '');
-    // Keep only the scope label (before " - status" if present)
-    const idx = s.indexOf(' - ');
-    if (idx !== -1) s = s.slice(0, idx).trim();
-    if (s) scopes.push(s);
-  }
-  return scopes;
+function buildProjectPanelEmbed(project){
+  const statusKey = normalizeStatus(project.status);
+  const statusLabel = STATUS_LABEL[statusKey] || 'Started';
+  const foreman = project.foreman_display || '—';
+  const start = project.start_date || '—';
+  const reminder = project.reminder_time || '—';
+
+  return new EmbedBuilder()
+    .setTitle(`Project Panel — ${project.name}`)
+    .addFields(
+      { name: 'Status', value: statusLabel, inline: true },
+      { name: 'Foreman', value: foreman, inline: true },
+      { name: 'Start Date', value: String(start), inline: true },
+      { name: 'Reminder Time', value: String(reminder), inline: true },
+      ...(project.thread_channel_id ? [{ name: 'Thread', value: `<#${project.thread_channel_id}>`, inline: true }] : []),
+    );
 }
 
-async function fetchFirstPostContent(thread){
-  try{
-    if (typeof thread.fetchStarterMessage === 'function'){
-      const starter = await thread.fetchStarterMessage();
-      if (starter?.content) return starter.content;
-    }
-  }catch(e){ log('fetchStarterMessage error', e?.message); }
-  try{
-    const msgs = await thread.messages.fetch({ limit: 10 });
-    const oldest = [...msgs.values()].sort((a,b)=>a.createdTimestamp-b.createdTimestamp)[0];
-    return oldest?.content || '';
-  }catch(e){ log('messages.fetch error', e?.message); }
-  return '';
-}
-
-async function ensureInThread(thread){
-  try{
-    if (!thread?.isThread?.()) return;
-    await thread.join(); // no-op if already joined
-  }catch(e){ log('thread.join error', e?.message); }
-}
-
-// --- Panel row builder (kept for callers that compose UI here) ---
-export function buildPanelRow(project){
-  const row = new ActionRowBuilder().addComponents(
+function rowMain(project){
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`dr:settpl:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`dr:reftpl:${project.id}`).setLabel('Refresh Template').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:clear:${project.id}`).setLabel('Clear Template').setStyle(ButtonStyle.Secondary),
   );
-  return row;
 }
 
-// --- Wire interactions, thread joining, mention responder ---
-export function wireMentionPanel(client){
-  // Join active threads on ready (Forums = threads)
-  client.on('ready', async () => {
+async function ensureProject(thread){
+  let p = await store.getProjectByThread(thread.id);
+  if (!p){
+    p = await store.upsertProject({
+      name: thread.name,
+      thread_channel_id: thread.id,
+      start_date: DateTime.now().setZone('America/Chicago').toISODate(),
+      status: STATUS.STARTED,
+      reminder_time: '19:00',
+    });
+  }
+  return p;
+}
+
+async function showReportModal(interaction, project){
+  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
+
+  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  try {
+    const t = await templates.getTemplateForProject(project.id);
+    if (t) synopsis.setValue(String(t).slice(0, 4000));
+  } catch {}
+
+  const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
+  const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(true);
+  const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (manpower, hours)').setPlaceholder('example = 4, 8 means 4 men 8 hours').setStyle(TextInputStyle.Short).setRequired(true);
+  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent problems, 5=all good)').setStyle(TextInputStyle.Short).setRequired(true);
+
+      const rows = [
+    new ActionRowBuilder().addComponents(synopsis),
+    new ActionRowBuilder().addComponents(pct),
+    new ActionRowBuilder().addComponents(completion),
+    new ActionRowBuilder().addComponents(labor),
+    new ActionRowBuilder().addComponents(health),
+  ];
+  // SAFEGUARD: Discord allows max 5 rows in a modal
+  const limited = rows.slice(0, 5);
+  try { console.log('[mentionPanel] modal rows =', limited.length); } catch {}
+  modal.addComponents(...limited);
+  return interaction.showModal(modal);
+}
+
+function parseLabor(text){
+  if (!text) return { guys: null, hours: null };
+  const nums = Array.from(String(text).matchAll(/(\d+(?:\.\d+)?)/g)).map(m=>Number(m[1])).filter(n=>Number.isFinite(n));
+  const people = Number.isFinite(nums[0]) ? Math.round(nums[0]) : null;
+  const hrs = Number.isFinite(nums[1]) ? Math.round(nums[1]) : null;
+  return { guys: people, hours: hrs };
+}
+
+function parseFromSynopsis(text){
+  const out = { blockers: null, plan: null };
+  if (!text) return out;
+  const lower = text.toLowerCase();
+  const b = lower.indexOf('blockers:');
+  if (b >= 0){
+    const after = text.slice(b + 'blockers:'.length);
+    const next = after.toLowerCase().indexOf('plan:');
+    out.blockers = (next >= 0 ? after.slice(0, next) : after).trim();
+  }
+  const p = lower.indexOf('plan:');
+  if (p >= 0){
+    const after = text.slice(p + 'plan:'.length);
+    out.plan = after.trim();
+  }
+  return out;
+}
+
+async function showPanel(msg, project){
+  const embed = buildProjectPanelEmbed(project);
+  const row1 = rowMain(project);
+  const rows = [row1].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
+  try{
+    await msg.reply({ embeds: [embed], components: rows });
+  }catch{
+    await msg.channel.send({ embeds: [embed], components: rows });
+  }
+}
+
+export function wireInteractions(client){
+  client.on(Events.MessageCreate, async (msg) => {
     try{
-      for (const [, guild] of client.guilds.cache){
-        const list = await guild.channels.fetchActiveThreads().catch(()=>null);
-        const threads = list?.threads || [];
-        for (const [, th] of threads) await ensureInThread(th);
+      if (msg.author.bot) return;
+      if (!msg.mentions.has(client.user)) return;
+      const channel = msg.channel;
+      if (!channel.isThread()) {
+        return msg.reply({ content: 'Please mention me **inside a project thread**.' });
       }
-      log('joined active threads');
-    }catch(e){ log('ready/join threads error', e?.message); }
+      const project = await ensureProject(channel);
+      await showPanel(msg, project);
+    }catch(e){ console.error('panel mention error', e); }
   });
 
-  // Auto-join new threads/posts
-  client.on('threadCreate', async (thread) => {
-    await ensureInThread(thread);
-    log('threadCreate joined', thread?.id, 'parent=', thread?.parentId);
-  });
-
-  // Buttons / modal
-  client.on('interactionCreate', async (i) => {
+  client.on(Events.InteractionCreate, async (i) => {
     try{
-      if (i.isButton()){
-        const cid = i.customId || '';
-        log('button', cid, 'in', i.channel?.id);
-        if (cid.startsWith('dr:settpl:')){
-          const thread = i.channel;
-          await ensureInThread(thread);
-          const content = await fetchFirstPostContent(thread);
-          const scopes = parseScopeLines(content);
-          if (!scopes.length){
-            return i.reply({ content: 'Could not find scope lines in the first post. Put each scope on its own line (e.g., "1) CMU - 106A (Return Storage)").', flags: 64 });
-          }
-          await store.setThreadTemplate(thread.id, scopes, { updatedBy: i.user.id });
-          return i.reply({ content: `? Saved ${scopes.length} scope lines for this thread.`, flags: 64 });
-        }
-        if (cid.startsWith('dr:reftpl:')){
-          const thread = i.channel;
-          await ensureInThread(thread);
-          const content = await fetchFirstPostContent(thread);
-          const scopes = parseScopeLines(content);
-          if (!scopes.length){
-            return i.reply({ content: 'Could not find scope lines in the first post to refresh.', flags: 64 });
-          }
-          await store.setThreadTemplate(thread.id, scopes, { updatedBy: i.user.id });
-          return i.reply({ content: `?? Template refreshed with ${scopes.length} scope lines.`, flags: 64 });
-        }
-        if (cid.startsWith('dr:open:')){
-          await showReportModal(i);
-          return;
-        }
+      if (i.isButton() && i.customId.startsWith('dr:open:')){
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        return await showReportModal(i, project);
       }
+
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
-        log('modal submit', i.customId);
-        return;
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+
+        const synopsis = i.fields.getTextInputValue('synopsis')?.trim();
+        const pct = Number(i.fields.getTextInputValue('pct') || '0');
+        const completion_date = (i.fields.getTextInputValue('completion_date') || '').trim();
+        const laborText = (i.fields.getTextInputValue('labor') || '').trim();
+        const { guys, hours } = parseLabor(laborText);
+        const health = Number(i.fields.getTextInputValue('health') || '0');
+        const { blockers, plan } = parseFromSynopsis(synopsis);
+
+        const now = DateTime.now().setZone('America/Chicago');
+        const report = {
+          project_id: project.id,
+          author_user_id: i.user.id,
+          created_at: now.toISO(),
+          report_date: now.toISODate(),
+          synopsis,
+          percent_complete: Number.isFinite(pct) ? pct : null,
+          man_count: Number.isFinite(guys) ? guys : null,
+          man_hours: Number.isFinite(hours) ? hours : null,
+          health_score: Number.isFinite(health) && health>0 ? health : null,
+          blockers: blockers || null,
+          tomorrow_plan: plan || null,
+          triggers: [],
+          photos: [],
+          completion_date: (completion_date || null)
+        };
+        await store.insertDailyReport(report);
+        const _foremanDisplay = (i.member?.displayName || i.user.username);
+        const _update = { foreman_user_id: i.user.id, foreman_display: _foremanDisplay };
+        if (completion_date) _update.completion_date = completion_date;
+        await store.updateProjectFields(project.id, _update);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`Daily Report — ${project.name}`)
+          .setDescription(synopsis || '—')
+          .addFields(
+            { name: 'Completed By', value: (i.member?.displayName || i.user.username), inline: true },
+            { name: 'Submitted (Discord)', value: i.user.tag, inline: true },
+            { name: 'Foreman', value: project.foreman_display || '—', inline: true },
+            { name: 'Percent Complete', value: `${report.percent_complete ?? '—'}%`, inline: true },
+            ...(report.completion_date ? [{ name: 'Anticipated End', value: String(report.completion_date), inline: true }] : []),
+            { name: '# Guys', value: String(report.man_count ?? '—'), inline: true },
+            { name: 'Man-hours', value: String(report.man_hours ?? '—'), inline: true },
+            ...(report.health_score ? [{ name: 'Health Score', value: `${report.health_score} / 5`, inline: true }] : []),
+            ...(blockers ? [{ name: 'Blockers', value: blockers, inline: false }] : []),
+            ...(plan ? [{ name: 'Tomorrow’s Plan', value: plan, inline: false }] : []),
+          )
+          .setTimestamp();
+
+        const thread = await i.client.channels.fetch(project.thread_channel_id);
+        await thread.send({ embeds: [embed] });
+
+        await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
+        await postWeatherHazardsIfNeeded({ project: (await store.getProjectById(project.id)), channel: thread, tz: TZ }).catch(()=>{});
+        await maybePingOnReport({
+          channel: thread,
+          blockers,
+          healthScore: report.health_score,
+          roleIds: {
+            COO_ROLE_ID: process.env.COO_ROLE_ID,
+            FINANCE_ROLE_ID: process.env.FINANCE_ROLE_ID,
+            LODGING_ROLE_ID: process.env.LODGING_ROLE_ID,
+            MLB_OFFICE_ROLE_ID: process.env.MLB_OFFICE_ROLE_ID,
+          },
+        }).catch(()=>{});
+
+        return i.reply({ content: 'Report submitted.', ephemeral: true });
+      }
+
+      
+      // Template buttons
+      if (i.isButton() && i.customId.startsWith('tmpl:set:')){
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        const existing = await templates.getTemplateForProject(pid);
+        const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle(`Set Daily Summary Template`);
+        const body = new TextInputBuilder()
+          .setCustomId('tmpl_body')
+          .setLabel('Template text (prefills Daily Summary)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false);
+        if (existing) body.setValue(String(existing).slice(0, 4000));
+        modal.addComponents(new ActionRowBuilder().addComponents(body));
+        return i.showModal(modal);
+      }
+
+      if (i.isButton() && i.customId.startsWith('tmpl:clear:')){
+        const pid = Number(i.customId.split(':').pop());
+        await templates.clearTemplateForProject(pid);
+        return i.reply({ content: 'Template cleared for this project/thread.', ephemeral: true });
+      }
+
+      if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
+        const pid = Number(i.customId.split(':').pop());
+        const val = i.fields.getTextInputValue('tmpl_body') || '';
+        if (val.trim().length === 0){
+          await templates.clearTemplateForProject(pid);
+          return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
+        } else {
+          await templates.setTemplateForProject(pid, val);
+          return i.reply({ content: 'Template saved.', ephemeral: true });
+        }
+      }
+if (i.isButton() && i.customId.startsWith('panel:foreman:')){
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+
+        const rowUser = new ActionRowBuilder().addComponents(
+          new UserSelectMenuBuilder().setCustomId(`foreman:pick:${pid}`).setPlaceholder('Select a foreman').setMinValues(1).setMaxValues(1)
+        );
+        const rowTime = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder().setCustomId(`foreman:time:${pid}`).setPlaceholder('Reminder time (local)').addOptions(['06:30','12:00','19:00','20:00'].map(v => ({ label: v, value: v })))
+        );
+        return i.reply({ content: 'Select new foreman and reminder time:', components: [rowUser, rowTime], ephemeral: true });
+      }
+
+      if (i.isUserSelectMenu() && i.customId.startsWith('foreman:pick:')){
+        const pid = Number(i.customId.split(':').pop());
+        const uid = i.values[0];
+        const member = await i.guild.members.fetch(uid).catch(()=>null);
+        const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
+        if (roleId && !member?.roles.cache.has(roleId)){
+          return i.reply({ content: 'Selected user does not have the Foreman role.', ephemeral: true });
+        }
+        await store.updateProjectFields(pid, { foreman_user_id: uid, foreman_display: (member?.displayName || member?.user?.username || uid) });
+        return i.reply({ content: 'Foreman updated.', ephemeral: true });
+      }
+
+      if (i.isStringSelectMenu() && i.customId.startsWith('foreman:time:')){
+        const pid = Number(i.customId.split(':').pop());
+        const v = i.values[0];
+        await store.updateProjectFields(pid, { reminder_time: v });
+        return i.reply({ content: `Reminder time set to ${v}.`, ephemeral: true });
+      }
+
+      if (i.isButton() && i.customId.startsWith('panel:status:')){
+        const pid = Number(i.customId.split(':').pop());
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId(`status:set:${pid}`)
+          .setPlaceholder('Select status')
+          .addOptions([
+            { label: STATUS_LABEL[STATUS.STARTED], value: STATUS.STARTED },
+            { label: STATUS_LABEL[STATUS.ON_HOLD], value: STATUS.ON_HOLD },
+            { label: STATUS_LABEL[STATUS.IN_PROGRESS], value: STATUS.IN_PROGRESS },
+            { label: STATUS_LABEL[STATUS.LEAVING_INCOMPLETE], value: STATUS.LEAVING_INCOMPLETE },
+            { label: STATUS_LABEL[STATUS.COMPLETE_NO_GOBACKS], value: STATUS.COMPLETE_NO_GOBACKS },
+          ]);
+        return i.reply({ components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+      }
+
+      if (i.isStringSelectMenu() && i.customId.startsWith('status:set:')){
+        const pid = Number(i.customId.split(':').pop());
+        const status = i.values[0];
+        await store.updateProjectFields(pid, { status });
+        const project = await store.getProjectById(pid);
+        const channel = await i.client.channels.fetch(project.thread_channel_id);
+        await maybePingOnReport({
+          channel,
+          statusChangedTo: status,
+          roleIds: {
+            MLB_OFFICE_ROLE_ID: process.env.MLB_OFFICE_ROLE_ID,
+            FINANCE_ROLE_ID: process.env.FINANCE_ROLE_ID,
+            LODGING_ROLE_ID: process.env.LODGING_ROLE_ID,
+          }
+        }).catch(()=>{});
+        return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
       }
     }catch(e){
-      console.error(e);
-      try{ await i.reply({ content: 'Error handling interaction.', flags: 64 }); }catch{}
-    }
-  });
-
-  // Mention responder (works in threads once joined)
-  client.on('messageCreate', async (m) => {
-    try{
-      const ch = m.channel;
-      const isThread = !!ch?.isThread?.();
-      log('msg isThread=' + isThread, 'guild=' + (m.guild?.id||'n/a'), 'ch=' + (ch?.id||'n/a'));
-      if (m.author?.bot) return;
-      if (isThread) await ensureInThread(ch);
-      if (m.mentions?.has?.(m.client.user)) {
-        await m.reply('? DailyReportBot is online.\nUse **Set Template / Refresh Template** in the panel, then **Open Daily Report**.');
-        log('mention reply sent');
+      console.error('Interaction handler error:', e);
+      if (!i.deferred && !i.replied){
+        await i.reply({ content: 'There was an error handling that action. Please try again.', ephemeral: true });
+      } else if (i.deferred){
+        await i.editReply({ content: 'There was an error handling that action. Please try again.' });
       }
-    }catch(e){ console.error(e); }
-  });
-
-  log('wired');
-}
-
-// Build & show the Daily Report modal with prefilled Daily Summary
-async function showReportModal(interaction){
-  const projectId = (interaction.customId || '').split(':')[2] || 'unknown';
-  let prefill = '';
-  try{
-    const tpl = await store.getThreadTemplate(interaction.channel.id);
-    if (tpl?.scopes?.length){
-      prefill = tpl.scopes.map((s, idx)=>`${idx+1}) ${s} - `).join('\n');
     }
-  }catch(e){ log('prefill error', e?.message); }
-
-  const modal = new ModalBuilder()
-    .setCustomId(`dr:submit:${projectId}`)
-    .setTitle(`Daily Report � ${projectId}`);
-
-  const synopsis = new TextInputBuilder()
-    .setCustomId('synopsis')
-    .setLabel('Daily Summary')
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setValue(prefill || '');
-
-  const row = new ActionRowBuilder().addComponents(synopsis);
-  await interaction.showModal(modal.addComponents(row));
-  log('modal shown');
+  });
 }
-
-// Compatibility export for index.js
-export const wireInteractions = wireMentionPanel;
-export default { wireMentionPanel, buildPanelRow, wireInteractions };
