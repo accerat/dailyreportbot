@@ -68,19 +68,11 @@ async function showReportModal(interaction, project){
   const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   try {
     const t = await templates.getTemplateForProject(project.id);
-    if (t) {
-      if (typeof t === 'string') synopsis.setValue(String(t).slice(0, 4000));
-      else if (t.summary) synopsis.setValue(String(t.summary).slice(0, 4000));
-    }
+    if (t) synopsis.setValue(String(t).slice(0, 4000));
   } catch {}
 
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
   const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(true);
-  try {
-    const t = await templates.getTemplateForProject(project.id);
-    if (t && typeof t === 'object' && t.endDate) completion.setValue(String(t.endDate).slice(0, 100));
-  } catch {}
-
   const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (manpower, hours)').setPlaceholder('example = 4, 8 means 4 men 8 hours').setStyle(TextInputStyle.Short).setRequired(true);
   const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent problems, 5=all good)').setStyle(TextInputStyle.Short).setRequired(true);
 
@@ -246,15 +238,6 @@ export function wireInteractions(client){
           .setRequired(false);
         if (existing) body.setValue(String(existing).slice(0, 4000));
         modal.addComponents(new ActionRowBuilder().addComponents(body));
-
-        const end = new TextInputBuilder()
-          .setCustomId('tmpl_end')
-          .setLabel('Anticipated End Date (MM/DD/YYYY)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-        if (existing && typeof existing === 'object' && existing.endDate) end.setValue(String(existing.endDate).slice(0, 100));
-        modal.addComponents(new ActionRowBuilder().addComponents(end));
-
         return i.showModal(modal);
       }
 
@@ -266,16 +249,11 @@ export function wireInteractions(client){
 
       if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
         const pid = Number(i.customId.split(':').pop());
-        const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
-        const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
-        if (body.length === 0 && end.length === 0){
+        const val = i.fields.getTextInputValue('tmpl_body') || '';
+        if (val.trim().length === 0){
           await templates.clearTemplateForProject(pid);
           return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
         } else {
-          await templates.setTemplateForProject(pid, { summary: body, endDate: end });
-          return i.reply({ content: 'Template saved.', ephemeral: true });
-        }
-      } else {
           await templates.setTemplateForProject(pid, val);
           return i.reply({ content: 'Template saved.', ephemeral: true });
         }
