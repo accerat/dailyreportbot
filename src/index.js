@@ -12,6 +12,7 @@ import {
 } from 'discord.js';
 
 import { startKeepAlive } from './http/keepalive.js';
+import { wireDailyReportsForwarding } from './relay/dailyReportsForwarder.js';
 import { wireInteractions } from './interactions/mentionPanel.js';
 import './jobs/reminders.js';
 import './jobs/noonSummary.js';
@@ -104,6 +105,9 @@ client.on(Events.InteractionCreate, async (i) => {
 // Wire up message-based interactions (mentions + panel)
 console.log('[index] calling wireInteractions() …');
 wireInteractions(client);
+
+// Mirror Daily Reports into #daily-reports with 'Jump to Request'
+wireDailyReportsForwarding(client);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 14522;
 startKeepAlive(client).listen(port, () => {
