@@ -211,9 +211,24 @@ export function wireInteractions(client){
           .setTimestamp();
 
         const thread = await i.client.channels.fetch(project.thread_channel_id);
-        await thread.send({ embeds: [embed] });
+        const post = await thread.send({ embeds: [embed] });
 
-        await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
+        // --- Forward into the consolidated #daily-reports channel with a Jump button ---
+        try {
+          const drChId = process.env.DAILY_REPORTS_CHANNEL_ID;
+          if (drChId) {
+            const reportsChannel = await i.client.channels.fetch(drChId);
+            if (reportsChannel && typeof reportsChannel.send === 'function') {
+              const jumpRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Jump to Request').setURL(post?.url || thread?.url || '')
+              );
+              try {
+                await reportsChannel.send({ embeds: [embed], components: [jumpRow], allowedMentions: { parse: [] } });
+              } catch (e) { console.error('daily-reports forward send error', e); }
+            }
+          }
+        } catch (e) { console.error('daily-reports forward error', e); }
+await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
         await postWeatherHazardsIfNeeded({ project: (await store.getProjectById(project.id)), channel: thread, tz: TZ }).catch(()=>{});
         await maybePingOnReport({
           channel: thread,
