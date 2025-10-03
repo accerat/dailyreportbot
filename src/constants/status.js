@@ -1,5 +1,5 @@
 export const STATUS = {
-  STARTED: 'started',
+  UPCOMING: 'upcoming',
   ON_HOLD: 'on_hold',
   IN_PROGRESS: 'in_progress',
   LEAVING_INCOMPLETE: 'leaving_incomplete',
@@ -7,7 +7,7 @@ export const STATUS = {
 };
 
 export const STATUS_LABEL = {
-  [STATUS.STARTED]: 'Started',
+  [STATUS.UPCOMING]: 'Upcoming',
   [STATUS.ON_HOLD]: 'On Hold',
   [STATUS.IN_PROGRESS]: 'In Progress',
   [STATUS.LEAVING_INCOMPLETE]: 'Leaving & Incomplete',
@@ -15,11 +15,13 @@ export const STATUS_LABEL = {
 };
 
 export function normalizeStatus(s) {
-  if (!s) return STATUS.STARTED;
-  const key = String(s).toLowerCase().trim();
+  if (!s) return STATUS.UPCOMING;
+  const key = String(s).toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_');
+  // Map legacy "started" to "upcoming" for backward compatibility
+  if (key === 'started') return STATUS.UPCOMING;
   if (Object.values(STATUS).includes(key)) return key;
   if (key === 'open') return STATUS.IN_PROGRESS;
   if (key === 'blocked' || key === 'hold' || key === 'onhold') return STATUS.ON_HOLD;
   if (key === 'closed') return STATUS.COMPLETE_NO_GOBACKS;
-  return STATUS.STARTED;
+  return STATUS.UPCOMING;
 }

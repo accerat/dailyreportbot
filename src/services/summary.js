@@ -95,7 +95,7 @@ export async function postDailySummaryAll(clientParam) {
   const rows = await Promise.all(projects.map(async (p) => {
     const latest = await latestReportFor(p.id);
     const foreman = p.foreman_display || latest?.foreman_display || '—';
-    const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
+    const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Upcoming'));
     const start = p.start_date || '—';
     const anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
 

@@ -32,11 +32,16 @@ export async function getTemplateForProject(projectId){
 export async function setTemplateForProject(projectId, value){
   const d = await load();
   d.byProjectId = d.byProjectId || {};
-  // allow string or object { body, end }
   if (typeof value === 'string'){
     d.byProjectId[String(projectId)] = value;
   } else if (value && typeof value === 'object'){
-    d.byProjectId[String(projectId)] = { body: String(value.body || ''), end: String(value.end || '') };
+    d.byProjectId[String(projectId)] = {
+      body: String(value.body || ''),
+      start: String(value.start || ''),
+      end: String(value.end || ''),
+      reminder: String(value.reminder || ''),
+      foreman: String(value.foreman || ''),
+    };
   } else {
     d.byProjectId[String(projectId)] = '';
   }

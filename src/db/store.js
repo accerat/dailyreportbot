@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_FILE = join(__dirname, '../../data/store.json');
+import { normalizeStatus, STATUS } from '../constants/status.js';
 //CHANGED DEFAULTSTATE 8/20 11:09pm 
 //const defaultState = { projects: [], daily_reports: [], trigger_events: [], reminder_log: [], missed_reports: [] };
 
@@ -26,7 +27,19 @@ const defaultState = {
 
 
 async function ensureFile(){ try{ await mkdir(dirname(DATA_FILE),{recursive:true}); await readFile(DATA_FILE,'utf-8'); }catch{ await writeFile(DATA_FILE, JSON.stringify(defaultState,null,2)); } }
-export async function load(){ await ensureFile(); return JSON.parse(await readFile(DATA_FILE,'utf-8')); }
+export async function load(){
+  await ensureFile();
+  const s = JSON.parse(await readFile(DATA_FILE, 'utf-8'));
+  // migrate legacy statuses 'started' -> 'upcoming'
+  if (s && Array.isArray(s.projects)){
+    for (const p of s.projects){
+      if (p && String(p.status || '').toLowerCase() === 'started'){
+        p.status = 'upcoming';
+      }
+    }
+  }
+  return s;
+}
 export async function save(s){ await writeFile(DATA_FILE, JSON.stringify(s,null,2)); return s; }
 
 
@@ -43,13 +56,14 @@ export async function projectsNeedingReminder(ctHour, today) {
   const s = await load();
 
   function normStatus(val){
-    if (!val) return 'started';
+    if (!val) return 'upcoming';
     const v = String(val).toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_');
-    if (['started','on_hold','in_progress','leaving_incomplete','complete_no_gobacks'].includes(v)) return v;
+    if (['upcoming','on_hold','in_progress','leaving_incomplete','complete_no_gobacks'].includes(v)) return v;
+    if (v === 'started') return 'upcoming';
     if (v === 'open') return 'in_progress';
     if (v === 'blocked' || v === 'hold') return 'on_hold';
     if (v === 'closed') return 'complete_no_gobacks';
-    return 'started';
+    return 'upcoming';
   }
   function hasReportOn(pid, d){
     return (s.daily_reports || []).some(r => r.project_id === pid && r.report_date === d);
@@ -225,3 +239,20 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
 }
 
  // end added more exports
+
+export async function autoFlipUpcomingToInProgress(todayISO){
+  const s = await load();
+  let count = 0;
+  for (const p of (s.projects || [])){
+    const status = normalizeStatus(p.status);
+    if (status === STATUS.UPCOMING && p.start_date){
+      const d = String(p.start_date).slice(0,10);
+      if (d === todayISO){
+        p.status = STATUS.IN_PROGRESS;
+        count++;
+      }
+    }
+  }
+  if (count > 0) await save(s);
+  return count;
+}
