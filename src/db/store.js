@@ -5,6 +5,46 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_FILE = join(__dirname, '../../data/store.json');
+
+// ---- Auto-flip helpers ----
+function parseDateToISO(d){
+  if (!d) return null;
+  const s = String(d).trim();
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // MM/DD/YYYY
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m){
+    const mm = m[1].padStart(2,'0'), dd=m[2].padStart(2,'0'), yyyy=m[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  // Fallback: try Date parse
+  const dt = new Date(s);
+  if (!isNaN(dt)) {
+    const mm = String(dt.getMonth()+1).padStart(2,'0');
+    const dd = String(dt.getDate()).padStart(2,'0');
+    const yyyy = String(dt.getFullYear());
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
+export async function autoFlipUpcomingToInProgress(todayISO){
+  const s = await load();
+  const today = String(todayISO || new Date().toISOString().slice(0,10));
+  let changed = 0;
+  for (const p of (s.projects || [])){
+    const cur = (p.status || '').toLowerCase().trim().replaceAll(' ','_').replaceAll('-','_');
+    const isUpcoming = (cur === 'upcoming' || cur === 'started'); // accept legacy
+    const startISO = parseDateToISO(p.start_date);
+    if (isUpcoming && startISO && startISO <= today){
+      p.status = 'in_progress';
+      changed++;
+    }
+  }
+  if (changed) await save(s);
+  return changed;
+}
 //CHANGED DEFAULTSTATE 8/20 11:09pm 
 //const defaultState = { projects: [], daily_reports: [], trigger_events: [], reminder_log: [], missed_reports: [] };
 
@@ -26,25 +66,7 @@ const defaultState = {
 
 
 async function ensureFile(){ try{ await mkdir(dirname(DATA_FILE),{recursive:true}); await readFile(DATA_FILE,'utf-8'); }catch{ await writeFile(DATA_FILE, JSON.stringify(defaultState,null,2)); } }
-
-export async function load(){
-  await ensureFile();
-  const s = JSON.parse(await readFile(DATA_FILE,'utf-8'));
-  // Migrate legacy 'started' -> 'upcoming'
-  if (s && Array.isArray(s.projects)){
-    let changed = false;
-    for (const p of s.projects){
-      const v = (p && p.status) ? String(p.status).toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_') : '';
-      if (v === 'started'){
-        p.status = 'upcoming';
-        changed = true;
-      }
-    }
-    if (changed) await save(s);
-  }
-  return s;
-}
-
+export async function load(){ await ensureFile(); return JSON.parse(await readFile(DATA_FILE,'utf-8')); }
 export async function save(s){ await writeFile(DATA_FILE, JSON.stringify(s,null,2)); return s; }
 
 
@@ -61,13 +83,13 @@ export async function projectsNeedingReminder(ctHour, today) {
   const s = await load();
 
   function normStatus(val){
-    if (!val) return 'upcoming';
+    if (!val) return 'started';
     const v = String(val).toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_');
-    if (['upcoming','on_hold','in_progress','leaving_incomplete','complete_no_gobacks'].includes(v)) return v;
+    if (['started','on_hold','in_progress','leaving_incomplete','complete_no_gobacks'].includes(v)) return v;
     if (v === 'open') return 'in_progress';
     if (v === 'blocked' || v === 'hold') return 'on_hold';
     if (v === 'closed') return 'complete_no_gobacks';
-    return 'upcoming';
+    return 'started';
   }
   function hasReportOn(pid, d){
     return (s.daily_reports || []).some(r => r.project_id === pid && r.report_date === d);
@@ -243,21 +265,3 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
 }
 
  // end added more exports
-
-export async function autoFlipUpcomingToInProgress(todayISO){
-  const s = await load();
-  const today = todayISO || new Date().toISOString().slice(0,10);
-  let count = 0;
-  for (let i=0; i<(s.projects||[]).length; i++){
-    const p = s.projects[i];
-    if (!p) continue;
-    const status = (p.status||'').toLowerCase().replaceAll(' ','_').replaceAll('-','_') || 'upcoming';
-    const sd = p.start_date || null;
-    if (status === 'upcoming' && sd && sd <= today){
-      s.projects[i] = { ...p, status: 'in_progress' };
-      count++;
-    }
-  }
-  if (count > 0) await save(s);
-  return count;
-}

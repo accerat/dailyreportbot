@@ -1,15 +1,16 @@
 
+// src/jobs/autoFlipStart.js
 import cron from 'node-cron';
 import { DateTime } from 'luxon';
-import * as store from '../db/store.js';
+import { autoFlipUpcomingToInProgress } from '../db/store.js';
 
-// Flip status from 'upcoming' -> 'in_progress' on each project's start date, daily at 00:10 CT
+// Run daily at 00:10 CT to flip upcoming->in_progress when start_date arrives
 cron.schedule('10 0 * * *', async () => {
   try{
     const today = DateTime.now().setZone('America/Chicago').toISODate();
-    const n = await store.autoFlipUpcomingToInProgress(today);
-    if (n>0) console.log(`[autoFlipStart] Flipped ${n} project(s) to in_progress for ${today}`);
-  }catch(err){
-    console.error('[autoFlipStart] error', err);
+    const changed = await autoFlipUpcomingToInProgress(today);
+    if (changed) console.log(`[autoFlipStart] flipped ${changed} project(s) to in_progress for ${today}`);
+  }catch(e){
+    console.error('[autoFlipStart] error', e);
   }
 }, { timezone: 'America/Chicago' });

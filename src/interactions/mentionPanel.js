@@ -56,7 +56,7 @@ async function ensureProject(thread){
       name: thread.name,
       thread_channel_id: thread.id,
       start_date: DateTime.now().setZone('America/Chicago').toISODate(),
-      status: STATUS.UPCOMING,
+      status: STATUS.STARTED,
       reminder_time: '19:00',
     });
   }
@@ -266,52 +266,40 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
     else if (existing.body) body.setValue(String(existing.body).slice(0, 4000));
   }
 
-  
-const end = new TextInputBuilder()
+  const end = new TextInputBuilder()
     .setCustomId('tmpl_end')
     .setLabel('Anticipated End Date (MM/DD/YYYY)')
     .setStyle(TextInputStyle.Short)
     .setRequired(false);
-  if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+  
+const startDate = new TextInputBuilder()
+  .setCustomId('tmpl_start')
+  .setLabel('Start Date (MM/DD/YYYY or YYYY-MM-DD)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+if (project.start_date) startDate.setValue(String(project.start_date));
 
-  const startInput = new TextInputBuilder()
-    .setCustomId('tmpl_start')
-    .setLabel('Start Date (MM/DD/YYYY)')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false);
-  if (project?.start_date) {
-    try {
-      const dt = DateTime.fromISO(project.start_date, { zone: 'America/Chicago' });
-      if (dt.isValid) startInput.setValue(dt.toFormat('MM/dd/yyyy'));
-    } catch {}
-  }
+const foremanField = new TextInputBuilder()
+  .setCustomId('tmpl_foreman')
+  .setLabel('Initial Foreman (@mention or ID)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+if (project.foreman_user_id) foremanField.setValue(String(project.foreman_user_id));
 
-  const foreInput = new TextInputBuilder()
-    .setCustomId('tmpl_foreman')
-    .setLabel('Initial Foreman (@mention or ID)')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false);
-  if (project?.foreman_user_id && project?.foreman_display) {
-    foreInput.setValue(`<@${project.foreman_user_id}>`);
-  }
+const timeField = new TextInputBuilder()
+  .setCustomId('tmpl_time')
+  .setLabel('Daily Reminder Time (HH:MM 24h)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+if (project.reminder_time) timeField.setValue(String(project.reminder_time));
 
-  const timeInput = new TextInputBuilder()
-    .setCustomId('tmpl_time')
-    .setLabel('Daily Reminder Time (HH:MM 24h)')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false);
-  if (project?.reminder_time) {
-    timeInput.setValue(String(project.reminder_time));
-  }
+if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(body),
-    new ActionRowBuilder().addComponents(end),
-    new ActionRowBuilder().addComponents(startInput),
-    new ActionRowBuilder().addComponents(foreInput),
-    new ActionRowBuilder().addComponents(timeInput),
+    new ActionRowBuilder().addComponents(end)
   );
-return i.showModal(modal);
+  return i.showModal(modal);
 }
 
       if (i.isButton() && i.customId.startsWith('tmpl:clear:')){
@@ -320,66 +308,51 @@ return i.showModal(modal);
         return i.reply({ content: 'Template cleared for this project/thread.', ephemeral: true });
       }
 
-      
-if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
+      if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
   const pid = Number(i.customId.split(':').pop());
   const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
   const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
 
-  // New fields
-  const start = (i.fields.getTextInputValue('tmpl_start') || '').trim();
-  const foreVal = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
-  const timeVal = (i.fields.getTextInputValue('tmpl_time') || '').trim();
+const startIn = (i.fields.getTextInputValue('tmpl_start') || '').trim();
+const foremanIn = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
+const timeIn = (i.fields.getTextInputValue('tmpl_time') || '').trim();
 
-  // Validate & apply project field updates
-  const updates = {};
-  if (start){
-    const d1 = DateTime.fromFormat(start, 'M/d/yyyy', { zone: 'America/Chicago' });
-    const d2 = DateTime.fromISO(start, { zone: 'America/Chicago' });
-    const dt = d1.isValid ? d1 : (d2.isValid ? d2 : null);
-    if (!dt){
-      return i.reply({ content: 'Invalid start date. Use MM/DD/YYYY or YYYY-MM-DD.', ephemeral: true });
-    }
-    updates.start_date = dt.toISODate();
-  }
-  if (foreVal){
-    let uid = null;
-    const m = foreVal.match(/<@!?([0-9]{15,22})>/);
-    if (m) uid = m[1];
-    else if (/^[0-9]{15,22}$/.test(foreVal)) uid = foreVal;
-    if (!uid){
-      return i.reply({ content: 'Foreman must be a @mention or numeric ID.', ephemeral: true });
-    }
-    const member = await i.guild?.members?.fetch(uid).catch(()=>null);
-    if (!member){
-      return i.reply({ content: 'Foreman not found in this server.', ephemeral: true });
-    }
-    const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
-    if (roleId && !member.roles.cache.has(roleId)){
-      return i.reply({ content: 'Selected user does not have the Foreman role.', ephemeral: true });
-    }
-    updates.foreman_user_id = uid;
-    updates.foreman_display = (member.displayName || member.user?.username || uid);
-  }
-  if (timeVal){
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(timeVal)){
-      return i.reply({ content: 'Reminder time must be HH:MM in 24h format (e.g., 17:00).', ephemeral: true });
-    }
-    updates.reminder_time = timeVal;
-  }
-  if (Object.keys(updates).length){
-    await store.updateProjectFields(pid, updates);
-  }
+const updates = {};
+if (startIn) updates.start_date = startIn;
 
-  // Save template text/end
+if (timeIn && /^\d{1,2}:\d{2}$/.test(timeIn)) updates.reminder_time = timeIn;
+
+if (foremanIn){
+  const uidMatch = foremanIn.match(/\d{15,20}/);
+  if (uidMatch){
+    const uid = uidMatch[0];
+    try{
+      const member = await i.guild.members.fetch(uid).catch(()=>null);
+      const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
+      if (roleId && member && !member.roles.cache.has(roleId)){
+        // keep template but warn about role
+        await i.followUp({ content: 'Note: Foreman not set — selected user lacks the Foreman role.', ephemeral: true });
+      } else {
+        updates.foreman_user_id = uid;
+        updates.foreman_display = (member?.displayName || member?.user?.username || uid);
+      }
+    }catch{ /* ignore */ }
+  }
+}
+
+if (Object.keys(updates).length){
+  await store.updateProjectFields(pid, updates);
+}
+
   if (body.length === 0 && end.length === 0){
     await templates.clearTemplateForProject(pid);
     return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
   } else {
     await templates.setTemplateForProject(pid, { body, end });
-    return i.reply({ content: 'Template and project settings saved.', ephemeral: true });
+    return i.reply({ content: 'Template saved.', ephemeral: true });
   }
-}
+
+      }
 if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
@@ -419,7 +392,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
           .setCustomId(`status:set:${pid}`)
           .setPlaceholder('Select status')
           .addOptions([
-            { label: STATUS_LABEL[STATUS.UPCOMING], value: STATUS.UPCOMING },
+            { label: STATUS_LABEL[STATUS.STARTED], value: STATUS.STARTED },
             { label: STATUS_LABEL[STATUS.ON_HOLD], value: STATUS.ON_HOLD },
             { label: STATUS_LABEL[STATUS.IN_PROGRESS], value: STATUS.IN_PROGRESS },
             { label: STATUS_LABEL[STATUS.LEAVING_INCOMPLETE], value: STATUS.LEAVING_INCOMPLETE },

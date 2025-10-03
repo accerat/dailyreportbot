@@ -16,8 +16,9 @@ export const STATUS_LABEL = {
 
 export function normalizeStatus(s) {
   if (!s) return STATUS.UPCOMING;
-  const key = String(s).toLowerCase().trim();
+  const key = String(s).toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_');
   if (Object.values(STATUS).includes(key)) return key;
+if (key === 'started') return STATUS.UPCOMING;
   if (key === 'open') return STATUS.IN_PROGRESS;
   if (key === 'blocked' || key === 'hold' || key === 'onhold') return STATUS.ON_HOLD;
   if (key === 'closed') return STATUS.COMPLETE_NO_GOBACKS;
