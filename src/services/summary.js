@@ -3,20 +3,7 @@ import { DateTime } from 'luxon';
 import { ChannelType } from 'discord.js';
 import * as store from '../db/store.js';
 
-
-async function latestReportFor(projectId){
-  const ctx = await store.load();
-  const list = (ctx.daily_reports || []).filter(r => r.project_id === projectId && r.report_date);
-  list.sort((a,b) => String(a.report_date).localeCompare(String(b.report_date)));
-  return list[list.length - 1] || null;
-}
-
-function healthEmoji(h){
-  if (h === 5) return '🟢';
-  if (h === 1) return '🔴';
-  if (h != null && h >= 2 && h <= 4) return '🟡';
-  return '';
-}
+// --- constants & utils ---
 const CT = 'America/Chicago';
 
 function pad(s, w) { return String(s ?? '').padEnd(w, ' '); }
@@ -24,121 +11,70 @@ function trunc(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n -
 
 function parseMDY(s) {
   if (!s) return null;
-  const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  // supports YYYY-MM-DD or MM/DD/YYYY
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (!m) return null;
-  const [_, mo, da, yr] = m;
-  return DateTime.fromObject({ year: +yr, month: +mo, day: +da }, { zone: CT });
+  const mm = String(m[1]).padStart(2, '0');
+  const dd = String(m[2]).padStart(2, '0');
+  const yyyy = String(m[3]).length === 2 ? `20${m[3]}` : String(m[3]).padStart(4, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function norm(val) {
-  return String(val ?? '').toLowerCase().replace(/[\s_\-–—]+/g, ' ').trim();
+async function latestReportFor(projectId) {
+  const ctx = await store.load();
+  const list = (ctx.daily_reports || []).filter(r => r.project_id === projectId && r.report_date);
+  list.sort((a, b) => String(a.report_date).localeCompare(String(b.report_date)));
+  return list[list.length - 1] || null;
 }
 
-function isOnHold(p) {
-  const s = norm(p.status);
-  return p.paused === true || s.includes('hold') || s === 'on hold';
-}
-
-function isComplete(p, today) {
-  const s = norm(p.status);
-  // Treat anything that clearly denotes completion as complete, but exclude "incomplete" + "leaving"
-  if (s && s.includes('complete') && !s.includes('incomplete') && !s.includes('leaving')) {
-    return true;
-  }
-  // Common boolean flags
-  if (p.is_closed === true || p.closed === true || p.completed === true || p.complete === true) {
-    return true;
-  }
-  // Date-based completion
-  const comp = parseMDY(p.completion_date) || parseMDY(p.completed_date) || parseMDY(p.end_date);
-  if (comp && comp.startOf('day') <= today.startOf('day')) return true;
-  return false;
-}
-
-function projectIsActiveToday(p, today) {
-  if (isOnHold(p)) return false;
-  if (isComplete(p, today)) return false;
-  // Not active if start_date is in the future
-  const start = parseMDY(p.start_date);
-  if (start && start.startOf('day') > today.startOf('day')) return false;
-  return true;
-}
-
-async function resolveTargetChannel(client) {
-  const id = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
-  if (!id) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID is not set');
-  const ch = await client.channels.fetch(id);
-
-  // Post directly in a THREAD
-  if (typeof ch?.isThread === 'function' && ch.isThread()) return ch;
-  // Or directly in a TEXT channel (no auto child threads)
-  if (ch?.type === ChannelType.GuildText || (typeof ch?.isTextBased === 'function' && ch.isTextBased())) return ch;
-  // Forums always create posts/threads; not desired here
-  if (ch?.type === ChannelType.GuildForum) {
-    throw new Error('Daily summary target is a Forum. Set PROJECT_DAILY_SUMMARIES_FORUM_ID to a THREAD or TEXT channel.');
-  }
-  throw new Error(`Unsupported channel type for ${id}`);
+function healthEmoji(h) {
+  if (h === 5) return '🟢';
+  if (h === 1) return '🔴';
+  if (h != null && h >= 2 && h <= 4) return '🟡';
+  return '';
 }
 
 async function missedTodayFlag(project, todayISO) {
-  const today = DateTime.fromISO(todayISO, { zone: CT });
-  if (!projectIsActiveToday(project, today)) return '';
-
-  // Pull all reports and find the latest one for this project
   const ctx = await store.load();
-  const reports = (ctx.daily_reports || []).filter(r => r.project_id === project.id);
+  const latest = (ctx.daily_reports || [])
+    .filter(r => r.project_id === project.id && r.report_date)
+    .sort((a, b) => String(a.report_date).localeCompare(String(b.report_date)))
+    .at(-1) || null;
 
-  if (!reports.length) {
-    return 'No daily yet • Health —';
-  }
+  const lastISO = latest?.report_date || null;
+  const healthVal = Number(latest?.health_score);
+  const lastText = lastISO || '—';
+  const healthCell = (Number.isFinite(healthVal) ? `Health ${healthVal}/5` : 'Health —');
 
-  // newest by ISO date
-  reports.sort((a, b) => (a.report_date || '').localeCompare(b.report_date || ''));
-  const latest = reports[reports.length - 1] || null;
+  // stale if last report is not today
+  const stale = !lastISO || lastISO !== todayISO;
 
-  const latestISO = latest?.report_date || null;
-  if (!latestISO) {
-    return 'No daily yet • Health —';
-  }
-
-  // is today?
-  const isToday = (latestISO === todayISO);
-  if (isToday) return '';
-
-  // derive "M/D" text
-  let lastText = '';
-  try {
-    lastText = DateTime.fromISO(latestISO, { zone: CT }).toFormat('M/d');
-  } catch {
-    lastText = String(latestISO);
-  }
-
-  // derive health (prefer numeric property; otherwise parse from text)
-  let healthVal = null;
-  if (typeof latest.health === 'number') {
-    healthVal = Number.isFinite(latest.health) ? Math.max(1, Math.min(5, latest.health)) : null;
-  } else if (typeof latest.health === 'string') {
-    const n = Number(latest.health);
-    healthVal = Number.isFinite(n) ? Math.max(1, Math.min(5, n)) : null;
-  } else if (latest.text) {
-    const m = String(latest.text).match(/health\s*[:\-]?\s*(\d(?:\.\d)?)\s*\/?\s*5/i);
-    if (m) {
-      const n = Number(m[1]);
-      healthVal = Number.isFinite(n) ? Math.max(1, Math.min(5, n)) : null;
-    }
-  }
-
-  const healthCell = (healthVal != null ? `Health ${healthVal}/5` : 'Health —');
-  return `Last daily ${lastText} • ${healthCell}`;
+  return {
+    stale,
+    lastText,
+    healthVal,
+    healthCell
+  };
 }
 
+async function resolveTargetChannel(client) {
+  const forumId = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
+  if (!forumId) throw new Error('PROJECT_DAILY_SUMMARIES_FORUM_ID not set');
+  const channel = await client.channels.fetch(forumId).catch(() => null);
+  if (!channel) throw new Error('Daily Summary target channel not found');
+  if (channel.type === ChannelType.GuildForum) {
+    // If given a forum, post in the forum's default channel (will show as a post thread)
+    return channel;
+  }
+  return channel;
+}
+
+// --- main export ---
 export async function postDailySummaryAll(clientParam) {
   const client = clientParam || global.client;
   const target = await resolveTargetChannel(client);
   const todayISO = DateTime.now().setZone(CT).toISODate();
-
-  });
-
 
   // Fetch projects
   let projects = [];
@@ -147,34 +83,29 @@ export async function postDailySummaryAll(clientParam) {
   } else if (typeof store.load === 'function') {
     const ctx = await store.load();
     projects = ctx.projects || [];
+  }
 
   // Exclude projects that are 100% complete no gobacks
   projects = projects.filter(p => {
     const v = String(p.status || '').toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
     return v !== 'complete_no_gobacks';
-
-  }
+  });
 
   // Build rows
   const rows = await Promise.all(projects.map(async (p) => {
-    const foreman = p.foreman_display || '—';
+    const latest = await latestReportFor(p.id);
+    const foreman = p.foreman_display || latest?.foreman_display || '—';
     const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
     const start = p.start_date || '—';
-    const anticipated = p.completion_date || p.anticipated_end || '—';
+    const anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
 
-    // latest totals if present
-    let totalHrs = '—';
-    try {
-      if (typeof store.latestReport === 'function') {
-        const latest = await store.latestReport(p.id);
-        if (latest && (latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours)) {
-          totalHrs = String(latest.cum_man_hours ?? latest.total_man_hours ?? latest.man_hours);
-        }
-      }
-    } catch {}
+    const healthVal = Number(latest?.health_score);
+    const hemoji = Number.isFinite(healthVal) ? healthEmoji(Math.max(1, Math.min(5, healthVal))) : '';
+    const name = `${hemoji} ${p.name}`.trim();
 
-    const flag = await missedTodayFlag(p, todayISO);
-    return { name: p.name, status, foreman, start, anticipated, totalHrs, flag };
+    const { stale } = await missedTodayFlag(p, todayISO);
+
+    return { name, status, foreman, start, anticipated, stale };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End'];
@@ -193,18 +124,25 @@ export async function postDailySummaryAll(clientParam) {
     pad(headers[3], widths[3]),
     pad(headers[4], widths[4])
   ].join('  ');
-  const sepLine = widths.map(w => '-'.repeat(w)).join('  ');
+
+  const sepLine = [
+    '-'.repeat(widths[0]),
+    '-'.repeat(widths[1]),
+    '-'.repeat(widths[2]),
+    '-'.repeat(widths[3]),
+    '-'.repeat(widths[4])
+  ].join('  ');
 
   const bodyLines = rows.map(r => {
-  const line = [
-    pad(trunc(r.name, widths[0]), widths[0]),
-    pad(String(r.status), widths[1]),
-    pad(String(r.foreman), widths[2]),
-    pad(String(r.start), widths[3]),
-    pad(String(r.anticipated), widths[4])
-  ].join('  ');
-  return r.stale ? ('- ' + line) : ('  ' + line);
-});
+    const line = [
+      pad(trunc(r.name, widths[0]), widths[0]),
+      pad(String(r.status), widths[1]),
+      pad(String(r.foreman), widths[2]),
+      pad(String(r.start), widths[3]),
+      pad(String(r.anticipated), widths[4])
+    ].join('  ');
+    return r.stale ? ('- ' + line) : ('  ' + line); // red line for stale via diff block
+  });
 
   const title = `📊 ${todayISO} — Project Daily Summary`;
   const table = ['```diff', headerLine, sepLine, ...bodyLines, '```'].join('\n');
