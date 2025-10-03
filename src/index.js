@@ -17,6 +17,7 @@ import { wireInteractions } from './interactions/mentionPanel.js';
 import './jobs/reminders.js';
 import './jobs/noonSummary.js';
 import './jobs/midnightMissed.js';
+import './jobs/autoFlipStart.js';
 
 // Admin command modules
 import * as adminSummary from './commands/adminSummaryNow.js';
