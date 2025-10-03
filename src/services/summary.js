@@ -2,8 +2,21 @@
 import { DateTime } from 'luxon';
 import { ChannelType } from 'discord.js';
 import * as store from '../db/store.js';
-import { STATUS } from '../constants/status.js';
 
+
+async function latestReportFor(projectId){
+  const ctx = await store.load();
+  const list = (ctx.daily_reports || []).filter(r => r.project_id === projectId && r.report_date);
+  list.sort((a,b) => String(a.report_date).localeCompare(String(b.report_date)));
+  return list[list.length - 1] || null;
+}
+
+function healthEmoji(h){
+  if (h === 5) return '🟢';
+  if (h === 1) return '🔴';
+  if (h != null && h >= 2 && h <= 4) return '🟡';
+  return '';
+}
 const CT = 'America/Chicago';
 
 function pad(s, w) { return String(s ?? '').padEnd(w, ' '); }
@@ -124,6 +137,13 @@ export async function postDailySummaryAll(clientParam) {
   const target = await resolveTargetChannel(client);
   const todayISO = DateTime.now().setZone(CT).toISODate();
 
+  // Exclude projects that are 100% complete no gobacks
+  projects = projects.filter(p => {
+    const v = String(p.status || '').toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
+    return v !== 'complete_no_gobacks';
+  });
+
+
   // Fetch projects
   let projects = [];
   if (typeof store.allSummaryProjects === 'function') {
@@ -133,44 +153,10 @@ export async function postDailySummaryAll(clientParam) {
     projects = ctx.projects || [];
   }
 
-  // Filter out completed projects exactly matching '100% Complete – No Gobacks'
-  projects = projects.filter(p => (p?.status !== STATUS.COMPLETE_NO_GOBACKS));
-
   // Build rows
-  
-const rows = await Promise.all(projects.map(async (p) => {
+  const rows = await Promise.all(projects.map(async (p) => {
     const foreman = p.foreman_display || '—';
     const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
-    const start = p.start_date || '—';
-
-    let anticipated = p.completion_date || p.anticipated_end || '—';
-    let latest = null;
-    let healthVal = null;
-    let stale = true;
-    try {
-      if (typeof store.latestReport === 'function') {
-        latest = await store.latestReport(p.id);
-        if (latest) {
-          if (latest.completion_date && !anticipated) anticipated = latest.completion_date;
-          const todayISO = DateTime.now().setZone(CT).toISODate();
-          stale = (latest.report_date !== todayISO);
-          const hv = (typeof latest.health_score === 'number') ? latest.health_score
-                   : (Number.isFinite(Number(latest.health)) ? Number(latest.health) : null);
-          if (Number.isFinite(hv)) healthVal = Math.max(1, Math.min(5, Number(hv)));
-        }
-      }
-    } catch {}
-
-    const colorEmoji = (h) => {
-      if (h === 1) return '🔴';
-      if (h === 5) return '🟢';
-      if (h == null) return '⚪';
-      return '🟡';
-    };
-    const name = `${colorEmoji(healthVal)} ${p.name}`;
-
-    return { name, status, foreman, start, anticipated, stale };
-  }));
     const start = p.start_date || '—';
     const anticipated = p.completion_date || p.anticipated_end || '—';
 
@@ -195,26 +181,30 @@ const rows = await Promise.all(projects.map(async (p) => {
     Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 24),
     Math.min(Math.max(headers[2].length, ...rows.map(r => String(r.foreman).length)), 18),
     Math.max(headers[3].length, ...rows.map(r => String(r.start).length)),
-    Math.max(headers[4].length, ...rows.map(r => String(r.anticipated).length)),
-    Math.max(headers[5].length, ...rows.map(r => String(r.totalHrs).length)),
-    Math.min(Math.max(headers[6].length, ...rows.map(r => String(r.flag).length)), 20),
+    Math.max(headers[4].length, ...rows.map(r => String(r.anticipated).length))
   ];
 
-  const headerLine = headers.map((h, i) => pad(h, widths[i])).join('  ');
+  const headerLine = [
+    pad(headers[0], widths[0]),
+    pad(headers[1], widths[1]),
+    pad(headers[2], widths[2]),
+    pad(headers[3], widths[3]),
+    pad(headers[4], widths[4])
+  ].join('  ');
   const sepLine = widths.map(w => '-'.repeat(w)).join('  ');
 
-  const bodyLines = rows.map(r => [
+  const bodyLines = rows.map(r => {
+  const line = [
     pad(trunc(r.name, widths[0]), widths[0]),
-    pad(trunc(r.status, widths[1]), widths[1]),
-    pad(trunc(r.foreman, widths[2]), widths[2]),
+    pad(String(r.status), widths[1]),
+    pad(String(r.foreman), widths[2]),
     pad(String(r.start), widths[3]),
-    pad(String(r.anticipated), widths[4]),
-    pad(String(r.totalHrs), widths[5]),
-    pad(trunc(r.flag, widths[6]), widths[6]),
-  ].join('  '));
+    pad(String(r.anticipated), widths[4])
+  ].join('  ');
+  return r.stale ? ('- ' + line) : ('  ' + line);
+});
 
   const title = `📊 ${todayISO} — Project Daily Summary`;
-  const legend = '(- row = no daily report in last 24h)';
   const table = ['```diff', headerLine, sepLine, ...bodyLines, '```'].join('\n');
 
   await target.send({ content: title, allowedMentions: { parse: [] } });

@@ -351,10 +351,6 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const pid = Number(i.customId.split(':').pop());
         const status = i.values[0];
         await store.updateProjectFields(pid, { status });
-        // If completed, post executive completion summary
-        if (status === 'complete_no_gobacks') {
-          try { await postExecutiveCompletionSummary(i.client, pid); } catch {}
-        }
         const project = await store.getProjectById(pid);
         const channel = await i.client.channels.fetch(project.thread_channel_id);
         await maybePingOnReport({
@@ -366,7 +362,17 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             LODGING_ROLE_ID: process.env.LODGING_ROLE_ID,
           }
         }).catch(()=>{});
-        return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
+        
+        // Log specific transitions and post executive summary on completion
+        try {
+          if (status === STATUS.LEAVING_INCOMPLETE && typeof store.logEvent === 'function') {
+            await store.logEvent({ project_id: pid, type: 'status:leaving_incomplete', author_user_id: i.user.id });
+          }
+          if (status === STATUS.COMPLETE_NO_GOBACKS) {
+            await postExecutiveCompletionSummary(i.client, pid).catch(()=>{});
+          }
+        } catch {}
+return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
       }
     }catch(e){
       console.error('Interaction handler error:', e);

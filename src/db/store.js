@@ -34,27 +34,7 @@ export async function updateProjectFields(id, fields){
   const s = await load();
   const idx = (s.projects||[]).findIndex(p=>p.id===id);
   if (idx === -1) return false;
-  const prev = { ...(s.projects[idx]||{}) };
   s.projects[idx] = { ...(s.projects[idx]||{}), ...fields };
-
-  // Log status transition as a trigger_event (for exec summary stats)
-  try {
-    if (fields && typeof fields.status === 'string') {
-      const oldStatus = (prev.status || '').toString();
-      const newStatus = fields.status.toString();
-      if (newStatus && newStatus !== oldStatus) {
-        s.trigger_events = Array.isArray(s.trigger_events) ? s.trigger_events : [];
-        s.trigger_events.push({
-          project_id: prev.id,
-          report_id: null,
-          type: `status:${newStatus}`,
-          created_at: new Date().toISOString(),
-          author_user_id: fields._author_user_id || null,
-        });
-      }
-    }
-  } catch {}
-
   await save(s);
   return true;
 }
@@ -186,6 +166,27 @@ export async function updateReportTriggers(reportId, triggers, authorUserId){
   }
   await save(s);
   return r;
+}
+
+
+export async function logEvent({ project_id, type, author_user_id }) {
+  const s = await load();
+  const now = new Date().toISOString();
+  s.trigger_events = Array.isArray(s.trigger_events) ? s.trigger_events : [];
+  s.trigger_events.push({
+    project_id,
+    report_id: null,
+    type: String(type || '').trim(),
+    created_at: now,
+    author_user_id: author_user_id || null
+  });
+  await save(s);
+  return true;
+}
+
+export async function countProjectEventsByType(projectId, type) {
+  const s = await load();
+  return (s.trigger_events || []).filter(e => e.project_id === projectId && e.type === type).length;
 }
 // v4 add — project status helpers (top-level)
 export async function setProjectStatusByThread(threadId, status) {

@@ -19,7 +19,7 @@ cron.schedule(
 import { postWeeklyHealthSummary } from '../services/health.js';
 const TZ = process.env.TIMEZONE || 'America/Denver';
 // Weekly summary Fridays 16:00 in TZ
-cron.schedule(
+if (process.env.WEEKLY_HEALTH_ENABLED === 'true') cron.schedule(
   '0 16 * * 5',
   async () => {
     try {
@@ -30,3 +30,4 @@ cron.schedule(
   },
   { timezone: TZ }
 );
+

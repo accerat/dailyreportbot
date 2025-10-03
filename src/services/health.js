@@ -41,58 +41,54 @@ export async function postWeeklyHealthSummary(client, channelId, tz) {
   await channel.send({ content: ['🧭 **Weekly Health Summary** (last 7 days)', ...lines].join('\n') });
 }
 
-export async function postExecutiveCompletionSummary(client, projectId) {
-  const channelId = process.env.EXEC_SUMMARY_CHANNEL_ID || process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
-  if (!channelId) return;
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return;
 
+export async function postExecutiveCompletionSummary(client, projectId) {
+  if (!client) return;
   const ctx = await store.load();
-  const project = (ctx.projects || []).find(p => p.id === projectId);
-  if (!project) return;
+  const p = (ctx.projects || []).find(x => x.id === projectId);
+  if (!p) return;
 
   const reports = (ctx.daily_reports || []).filter(r => r.project_id === projectId);
-  const parseDate = (s) => {
-    try { return DateTime.fromISO(String(s), { zone: 'America/Chicago' }); } catch { return null; }
-  };
-  let firstDate = null, lastDate = null, minHealth = null;
-  for (const r of reports) {
-    const d = parseDate(r.report_date);
-    if (d) {
-      if (!firstDate || d < firstDate) firstDate = d;
-      if (!lastDate || d > lastDate) lastDate = d;
-    }
-    const hs = (typeof r.health_score === 'number') ? r.health_score
-              : (Number.isFinite(Number(r.health)) ? Number(r.health) : null);
-    if (Number.isFinite(hs)) {
-      const v = Math.max(1, Math.min(5, Number(hs)));
-      minHealth = (minHealth == null) ? v : Math.min(minHealth, v);
-    }
-  }
-  const fc = (ctx.trigger_events || []).filter(e => e.project_id === projectId && e.type === 'status:leaving_incomplete').length;
+  // First/last dates
+  const dates = reports.map(r => r.report_date).filter(Boolean).sort();
+  const first = dates[0] || '—';
+  const last = dates[dates.length - 1] || '—';
 
-  const colorEmoji = (h) => {
-    if (h === 1) return '🔴';
+  // Lowest-ever health (from health_score)
+  const healths = reports.map(r => Number(r.health_score)).filter(n => Number.isFinite(n));
+  const minHealth = healths.length ? Math.min(...healths) : null;
+  const colorBadge = (h) => {
     if (h === 5) return '🟢';
-    if (h == null) return '⚪';
+    if (h === 1) return '🔴';
+    if (h != null && h >= 2 && h <= 4) return '🟡';
     return '🟡';
   };
 
-  const name = `${colorEmoji(minHealth)} ${project.name}`;
-  const foreman = project.foreman_display || '—';
-  const fmt = (d) => d ? d.setLocale('en').toFormat('M/d/yyyy') : '—';
+  // Count status transitions to "leaving_incomplete"
+  let leavingCount = 0;
+  if (typeof store.countProjectEventsByType === 'function') {
+    leavingCount = await store.countProjectEventsByType(projectId, 'status:leaving_incomplete');
+  }
 
+  // Foreman
+  const foreman = p.foreman_display || '—';
+
+  // Channel
+  const chId = process.env.EXEC_SUMMARY_CHANNEL_ID || process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
+  if (!chId) return;
+  const channel = await client.channels.fetch(chId).catch(() => null);
+  if (!channel) return;
+
+  const title = `${colorBadge(minHealth)} ${p.name} — Completed`;
   const lines = [
-    `**Project:** ${name}`,
-    `**Foreman:** ${foreman}`,
-    `**First Daily Report:** ${fmt(firstDate)}`,
-    `**Last Daily Report:** ${fmt(lastDate)}`,
-    `**Leaving & Incomplete Count:** ${fc}`,
+    `**Project**: ${p.name}`,
+    `**Foreman**: ${foreman}`,
+    `**First Daily**: ${first}`,
+    `**Last Daily**: ${last}`,
+    `**Times Marked "Leaving & Incomplete"**: ${leavingCount}`
   ];
 
-  await channel.send({
-    content: `✅ **Project Completed** — Executive Summary`,
-    allowedMentions: { parse: [] },
-  });
-  await channel.send({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+  await channel.send({ content: `🧾 **Executive Summary**
+${title}
+` + lines.join('\n') });
 }
