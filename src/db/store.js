@@ -34,7 +34,27 @@ export async function updateProjectFields(id, fields){
   const s = await load();
   const idx = (s.projects||[]).findIndex(p=>p.id===id);
   if (idx === -1) return false;
+  const prev = { ...(s.projects[idx]||{}) };
   s.projects[idx] = { ...(s.projects[idx]||{}), ...fields };
+
+  // Log status transition as a trigger_event (for exec summary stats)
+  try {
+    if (fields && typeof fields.status === 'string') {
+      const oldStatus = (prev.status || '').toString();
+      const newStatus = fields.status.toString();
+      if (newStatus && newStatus !== oldStatus) {
+        s.trigger_events = Array.isArray(s.trigger_events) ? s.trigger_events : [];
+        s.trigger_events.push({
+          project_id: prev.id,
+          report_id: null,
+          type: `status:${newStatus}`,
+          created_at: new Date().toISOString(),
+          author_user_id: fields._author_user_id || null,
+        });
+      }
+    }
+  } catch {}
+
   await save(s);
   return true;
 }

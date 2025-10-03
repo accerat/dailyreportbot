@@ -2,6 +2,7 @@
 import { DateTime } from 'luxon';
 import { ChannelType } from 'discord.js';
 import * as store from '../db/store.js';
+import { STATUS } from '../constants/status.js';
 
 const CT = 'America/Chicago';
 
@@ -132,10 +133,44 @@ export async function postDailySummaryAll(clientParam) {
     projects = ctx.projects || [];
   }
 
+  // Filter out completed projects exactly matching '100% Complete – No Gobacks'
+  projects = projects.filter(p => (p?.status !== STATUS.COMPLETE_NO_GOBACKS));
+
   // Build rows
-  const rows = await Promise.all(projects.map(async (p) => {
+  
+const rows = await Promise.all(projects.map(async (p) => {
     const foreman = p.foreman_display || '—';
     const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
+    const start = p.start_date || '—';
+
+    let anticipated = p.completion_date || p.anticipated_end || '—';
+    let latest = null;
+    let healthVal = null;
+    let stale = true;
+    try {
+      if (typeof store.latestReport === 'function') {
+        latest = await store.latestReport(p.id);
+        if (latest) {
+          if (latest.completion_date && !anticipated) anticipated = latest.completion_date;
+          const todayISO = DateTime.now().setZone(CT).toISODate();
+          stale = (latest.report_date !== todayISO);
+          const hv = (typeof latest.health_score === 'number') ? latest.health_score
+                   : (Number.isFinite(Number(latest.health)) ? Number(latest.health) : null);
+          if (Number.isFinite(hv)) healthVal = Math.max(1, Math.min(5, Number(hv)));
+        }
+      }
+    } catch {}
+
+    const colorEmoji = (h) => {
+      if (h === 1) return '🔴';
+      if (h === 5) return '🟢';
+      if (h == null) return '⚪';
+      return '🟡';
+    };
+    const name = `${colorEmoji(healthVal)} ${p.name}`;
+
+    return { name, status, foreman, start, anticipated, stale };
+  }));
     const start = p.start_date || '—';
     const anticipated = p.completion_date || p.anticipated_end || '—';
 
@@ -154,7 +189,7 @@ export async function postDailySummaryAll(clientParam) {
     return { name: p.name, status, foreman, start, anticipated, totalHrs, flag };
   }));
 
-  const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End', 'Total Hrs', 'Flag'];
+  const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End'];
   const widths = [
     Math.min(Math.max(headers[0].length, ...rows.map(r => String(r.name).length)), 36),
     Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 24),
@@ -179,7 +214,8 @@ export async function postDailySummaryAll(clientParam) {
   ].join('  '));
 
   const title = `📊 ${todayISO} — Project Daily Summary`;
-  const table = ['```', headerLine, sepLine, ...bodyLines, '```'].join('\n');
+  const legend = '(- row = no daily report in last 24h)';
+  const table = ['```diff', headerLine, sepLine, ...bodyLines, '```'].join('\n');
 
   await target.send({ content: title, allowedMentions: { parse: [] } });
   await target.send({ content: table, allowedMentions: { parse: [] } });

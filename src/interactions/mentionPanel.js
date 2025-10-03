@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
+import { postExecutiveCompletionSummary } from '../services/health.js';
 import * as templates from '../db/templates.js';
 import { postWeatherHazardsIfNeeded } from '../services/weather.js';
 import { maybePingOnReport } from '../services/pings.js';
@@ -350,6 +351,10 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const pid = Number(i.customId.split(':').pop());
         const status = i.values[0];
         await store.updateProjectFields(pid, { status });
+        // If completed, post executive completion summary
+        if (status === 'complete_no_gobacks') {
+          try { await postExecutiveCompletionSummary(i.client, pid); } catch {}
+        }
         const project = await store.getProjectById(pid);
         const channel = await i.client.channels.fetch(project.thread_channel_id);
         await maybePingOnReport({
