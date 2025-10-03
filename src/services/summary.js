@@ -137,10 +137,6 @@ export async function postDailySummaryAll(clientParam) {
   const target = await resolveTargetChannel(client);
   const todayISO = DateTime.now().setZone(CT).toISODate();
 
-  // Exclude projects that are 100% complete no gobacks
-  projects = projects.filter(p => {
-    const v = String(p.status || '').toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
-    return v !== 'complete_no_gobacks';
   });
 
 
@@ -151,6 +147,12 @@ export async function postDailySummaryAll(clientParam) {
   } else if (typeof store.load === 'function') {
     const ctx = await store.load();
     projects = ctx.projects || [];
+
+  // Exclude projects that are 100% complete no gobacks
+  projects = projects.filter(p => {
+    const v = String(p.status || '').toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
+    return v !== 'complete_no_gobacks';
+
   }
 
   // Build rows
