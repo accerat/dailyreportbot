@@ -23,7 +23,7 @@ const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your 
 
 function buildProjectPanelEmbed(project){
   const statusKey = normalizeStatus(project.status);
-  const statusLabel = STATUS_LABEL[statusKey] || 'Upcoming';
+  const statusLabel = STATUS_LABEL[statusKey] || 'Started';
   const foreman = project.foreman_display || '—';
   const start = project.start_date || '—';
   const reminder = project.reminder_time || '—';
@@ -48,6 +48,13 @@ function rowMain(project){
     new ButtonBuilder().setCustomId(`tmpl:clear:${project.id}`).setLabel('Clear Template').setStyle(ButtonStyle.Secondary),
   );
 }
+function rowTemplate(project){
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:clear:${project.id}`).setLabel('Clear Template').setStyle(ButtonStyle.Secondary),
+  );
+}
+
 
 async function ensureProject(thread){
   let p = await store.getProjectByThread(thread.id);
@@ -127,7 +134,8 @@ function parseFromSynopsis(text){
 async function showPanel(msg, project){
   const embed = buildProjectPanelEmbed(project);
   const row1 = rowMain(project);
-  const rows = [row1].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
+  const row2 = rowTemplate(project);
+  const rows = [row1, row2].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
   try{
     await msg.reply({ embeds: [embed], components: rows });
   }catch{
@@ -271,29 +279,7 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
     .setLabel('Anticipated End Date (MM/DD/YYYY)')
     .setStyle(TextInputStyle.Short)
     .setRequired(false);
-  
-const startDate = new TextInputBuilder()
-  .setCustomId('tmpl_start')
-  .setLabel('Start Date (MM/DD/YYYY or YYYY-MM-DD)')
-  .setStyle(TextInputStyle.Short)
-  .setRequired(false);
-if (project.start_date) startDate.setValue(String(project.start_date));
-
-const foremanField = new TextInputBuilder()
-  .setCustomId('tmpl_foreman')
-  .setLabel('Initial Foreman (@mention or ID)')
-  .setStyle(TextInputStyle.Short)
-  .setRequired(false);
-if (project.foreman_user_id) foremanField.setValue(String(project.foreman_user_id));
-
-const timeField = new TextInputBuilder()
-  .setCustomId('tmpl_time')
-  .setLabel('Daily Reminder Time (HH:MM 24h)')
-  .setStyle(TextInputStyle.Short)
-  .setRequired(false);
-if (project.reminder_time) timeField.setValue(String(project.reminder_time));
-
-if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+  if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(body),
@@ -312,38 +298,6 @@ if (existing && typeof existing === 'object' && existing.end) end.setValue(Strin
   const pid = Number(i.customId.split(':').pop());
   const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
   const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
-
-const startIn = (i.fields.getTextInputValue('tmpl_start') || '').trim();
-const foremanIn = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
-const timeIn = (i.fields.getTextInputValue('tmpl_time') || '').trim();
-
-const updates = {};
-if (startIn) updates.start_date = startIn;
-
-if (timeIn && /^\d{1,2}:\d{2}$/.test(timeIn)) updates.reminder_time = timeIn;
-
-if (foremanIn){
-  const uidMatch = foremanIn.match(/\d{15,20}/);
-  if (uidMatch){
-    const uid = uidMatch[0];
-    try{
-      const member = await i.guild.members.fetch(uid).catch(()=>null);
-      const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
-      if (roleId && member && !member.roles.cache.has(roleId)){
-        // keep template but warn about role
-        await i.followUp({ content: 'Note: Foreman not set — selected user lacks the Foreman role.', ephemeral: true });
-      } else {
-        updates.foreman_user_id = uid;
-        updates.foreman_display = (member?.displayName || member?.user?.username || uid);
-      }
-    }catch{ /* ignore */ }
-  }
-}
-
-if (Object.keys(updates).length){
-  await store.updateProjectFields(pid, updates);
-}
-
   if (body.length === 0 && end.length === 0){
     await templates.clearTemplateForProject(pid);
     return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
