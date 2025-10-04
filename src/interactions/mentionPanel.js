@@ -13,6 +13,8 @@ import {
 } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
+import { postExecutiveCompletionSummary } from '../services/health.js';
+import * as templates from '../db/templates.js';
 import { postWeatherHazardsIfNeeded } from '../services/weather.js';
 import { maybePingOnReport } from '../services/pings.js';
 import { STATUS, STATUS_LABEL, normalizeStatus } from '../constants/status.js';
@@ -40,10 +42,17 @@ function buildProjectPanelEmbed(project){
 function rowMain(project){
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
   );
 }
+function rowTemplate(project){
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:clear:${project.id}`).setLabel('Clear Template').setStyle(ButtonStyle.Secondary),
+  );
+}
+
 
 async function ensureProject(thread){
   let p = await store.getProjectByThread(thread.id);
@@ -59,14 +68,26 @@ async function ensureProject(thread){
   return p;
 }
 
-function showReportModal(interaction, project){
+async function showReportModal(interaction, project){
   const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
 
-  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Synopsis (add Blockers: / Plan:)').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
+  try {
+    const t = await templates.getTemplateForProject(project.id);
+    if (t) {
+      if (typeof t === 'string') synopsis.setValue(String(t).slice(0, 4000));
+      else if (t && t.body) synopsis.setValue(String(t.body).slice(0, 4000));
+    }
+  } catch {}
+
   const pct = new TextInputBuilder().setCustomId('pct').setLabel('Completion % (0-100)').setStyle(TextInputStyle.Short).setRequired(true);
-  const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(false);
-  const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (people, hours)').setPlaceholder('e.g., 4, 32 or 4p 32h').setStyle(TextInputStyle.Short).setRequired(false);
-  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent, 5=good)').setStyle(TextInputStyle.Short).setRequired(false);
+  const completion = new TextInputBuilder().setCustomId('completion_date').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(true);
+  try {
+    const t = await templates.getTemplateForProject(project.id);
+    if (t && typeof t === 'object' && t.end) completion.setValue(String(t.end).slice(0, 100));
+  } catch {}
+  const labor = new TextInputBuilder().setCustomId('labor').setLabel('Labor (manpower, hours)').setPlaceholder('example = 4, 8 means 4 men 8 hours').setStyle(TextInputStyle.Short).setRequired(true);
+  const health = new TextInputBuilder().setCustomId('health').setLabel('Health (1=urgent problems, 5=all good)').setStyle(TextInputStyle.Short).setRequired(true);
 
       const rows = [
     new ActionRowBuilder().addComponents(synopsis),
@@ -139,7 +160,7 @@ export function wireInteractions(client){
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
         if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
-        return showReportModal(i, project);
+        return await showReportModal(i, project);
       }
 
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
@@ -196,9 +217,24 @@ export function wireInteractions(client){
           .setTimestamp();
 
         const thread = await i.client.channels.fetch(project.thread_channel_id);
-        await thread.send({ embeds: [embed] });
+        const post = await thread.send({ embeds: [embed] });
 
-        await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
+        // --- Forward into the consolidated #daily-reports channel with a Jump button ---
+        try {
+          const drChId = process.env.DAILY_REPORTS_CHANNEL_ID;
+          if (drChId) {
+            const reportsChannel = await i.client.channels.fetch(drChId);
+            if (reportsChannel && typeof reportsChannel.send === 'function') {
+              const jumpRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Jump to Request').setURL(post?.url || thread?.url || '')
+              );
+              try {
+                await reportsChannel.send({ embeds: [embed], components: [jumpRow], allowedMentions: { parse: [] } });
+              } catch (e) { console.error('daily-reports forward send error', e); }
+            }
+          }
+        } catch (e) { console.error('daily-reports forward error', e); }
+await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
         await postWeatherHazardsIfNeeded({ project: (await store.getProjectById(project.id)), channel: thread, tz: TZ }).catch(()=>{});
         await maybePingOnReport({
           channel: thread,
@@ -215,37 +251,105 @@ export function wireInteractions(client){
         return i.reply({ content: 'Report submitted.', ephemeral: true });
       }
 
-      if (i.isButton() && i.customId.startsWith('panel:foreman:')){
-        const pid = Number(i.customId.split(':').pop());
-        const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+      
+      // Template buttons
+      if (i.isButton() && i.customId.startsWith('tmpl:set:')){
+  const pid = Number(i.customId.split(':').pop());
+  const project = await store.getProjectById(pid);
+  if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+  const existing = await templates.getTemplateForProject(pid);
 
-        const rowUser = new ActionRowBuilder().addComponents(
-          new UserSelectMenuBuilder().setCustomId(`foreman:pick:${pid}`).setPlaceholder('Select a foreman').setMinValues(1).setMaxValues(1)
-        );
-        const rowTime = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder().setCustomId(`foreman:time:${pid}`).setPlaceholder('Reminder time (local)').addOptions(['06:30','12:00','19:00','20:00'].map(v => ({ label: v, value: v })))
-        );
-        return i.reply({ content: 'Select new foreman and reminder time:', components: [rowUser, rowTime], ephemeral: true });
+  const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle(`Set Daily Summary Template`);
+
+  const body = new TextInputBuilder()
+    .setCustomId('tmpl_body')
+    .setLabel('Template text (prefills Daily Summary)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false);
+  if (existing) {
+    if (typeof existing === 'string') body.setValue(String(existing).slice(0, 4000));
+    else if (existing.body) body.setValue(String(existing.body).slice(0, 4000));
+  }
+
+  const end = new TextInputBuilder()
+    .setCustomId('tmpl_end')
+    .setLabel('Anticipated End Date (MM/DD/YYYY)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+  
+const startDate = new TextInputBuilder()
+  .setCustomId('tmpl_start')
+  .setLabel('Start Date (MM/DD/YYYY or YYYY-MM-DD)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+
+const foremanField = new TextInputBuilder()
+  .setCustomId('tmpl_foreman')
+  .setLabel('Initial Foreman (@mention or ID)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+
+const timeField = new TextInputBuilder()
+  .setCustomId('tmpl_time')
+  .setLabel('Daily Reminder Time (HH:MM 24h)')
+  .setStyle(TextInputStyle.Short)
+  .setRequired(false);
+if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(body),
+    new ActionRowBuilder().addComponents(end),
+    new ActionRowBuilder().addComponents(startDate),
+    new ActionRowBuilder().addComponents(foremanField),
+    new ActionRowBuilder().addComponents(timeField)
+  );
+  return i.showModal(modal);
+}
+
+      if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
+  const pid = Number(i.customId.split(':').pop());
+  const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
+  const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
+
+const startIn = (i.fields.getTextInputValue('tmpl_start') || '').trim();
+const foremanIn = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
+const timeIn = (i.fields.getTextInputValue('tmpl_time') || '').trim();
+
+const updates = {};
+if (startIn) updates.start_date = startIn;
+if (/^\d{1,2}:\d{2}$/.test(timeIn)) updates.reminder_time = timeIn;
+
+if (foremanIn){
+  const uidMatch = foremanIn.match(/\d{15,20}/);
+  if (uidMatch){
+    const uid = uidMatch[0];
+    try{
+      const member = await i.guild.members.fetch(uid).catch(()=>null);
+      const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
+      if (roleId && member && !member.roles.cache.has(roleId)){
+        await i.followUp({ content: 'Note: foreman not set — selected user lacks the Foreman role.', ephemeral: true });
+      } else {
+        updates.foreman_user_id = uid;
+        updates.foreman_display = (member?.displayName || member?.user?.username || uid);
       }
+    }catch{ /* ignore */ }
+  }
+}
 
-      if (i.isUserSelectMenu() && i.customId.startsWith('foreman:pick:')){
-        const pid = Number(i.customId.split(':').pop());
-        const uid = i.values[0];
-        const member = await i.guild.members.fetch(uid).catch(()=>null);
-        const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
-        if (roleId && !member?.roles.cache.has(roleId)){
-          return i.reply({ content: 'Selected user does not have the Foreman role.', ephemeral: true });
-        }
+if (Object.keys(updates).length){
+  await store.updateProjectFields(pid, updates);
+}
+
+if (body.length === 0 && end.length === 0){
+  await templates.clearTemplateForProject(pid);
+  await i.reply({ content: 'Template fields saved. No template text provided — cleared existing template.', ephemeral: true });
+} else {
+  await templates.setTemplateForProject(pid, { body, end });
+  await i.reply({ content: 'Template and fields saved.', ephemeral: true });
+}
+}
         await store.updateProjectFields(pid, { foreman_user_id: uid, foreman_display: (member?.displayName || member?.user?.username || uid) });
         return i.reply({ content: 'Foreman updated.', ephemeral: true });
-      }
-
-      if (i.isStringSelectMenu() && i.customId.startsWith('foreman:time:')){
-        const pid = Number(i.customId.split(':').pop());
-        const v = i.values[0];
-        await store.updateProjectFields(pid, { reminder_time: v });
-        return i.reply({ content: `Reminder time set to ${v}.`, ephemeral: true });
       }
 
       if (i.isButton() && i.customId.startsWith('panel:status:')){
@@ -278,7 +382,17 @@ export function wireInteractions(client){
             LODGING_ROLE_ID: process.env.LODGING_ROLE_ID,
           }
         }).catch(()=>{});
-        return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
+        
+        // Log specific transitions and post executive summary on completion
+        try {
+          if (status === STATUS.LEAVING_INCOMPLETE && typeof store.logEvent === 'function') {
+            await store.logEvent({ project_id: pid, type: 'status:leaving_incomplete', author_user_id: i.user.id });
+          }
+          if (status === STATUS.COMPLETE_NO_GOBACKS) {
+            await postExecutiveCompletionSummary(i.client, pid).catch(()=>{});
+          }
+        } catch {}
+return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
       }
     }catch(e){
       console.error('Interaction handler error:', e);
