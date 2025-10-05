@@ -42,10 +42,8 @@ function buildProjectPanelEmbed(project){
 function rowMain(project){
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`panel:foreman:${project.id}`).setLabel('Change Foreman').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`tmpl:clear:${project.id}`).setLabel('Clear Template').setStyle(ButtonStyle.Secondary),
   );
 }
 

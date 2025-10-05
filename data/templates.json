@@ -1,0 +1,48 @@
+{
+  "byProjectId": {
+    "1": {
+      "body": "test\n1️⃣ GWB - 151E (breakroom) - complete\n2️⃣ CMU - 713A (hallway) - all installed, missing hardware\n3️⃣ CMU - 801B (vacant tenant) - RFI\n4️⃣ GWB - 802B (vacant tenant 2) - started",
+      "end": "10/6/2025"
+    },
+    "3": {
+      "body": "1️⃣ CMU - 106A (Return Storage) - \n2️⃣ CMU - 700E (Vision Center) - \n3️⃣ CMU - 803E (White Box) - \n4️⃣ CMU - 805A (Devi Nails) - \n5️⃣ CMU - 806A (Money Center) - \n6️⃣ GWB - 151E (Breakroom) -\n7️⃣ Any add or misc unlisted work -",
+      "end": "11/1/2025"
+    },
+    "4": {
+      "body": "1️⃣ CMU - 803A (Office)\n2️⃣ GWB - 151C (Breakroom)",
+      "end": ""
+    },
+    "5": {
+      "body": "1️⃣ CMU - 151E (Breakroom)",
+      "end": "10/10/2025"
+    },
+    "6": {
+      "body": "1 -  CMU - 105A (Customer Service)\n2 - CMU - 168A (Pickup Storage)\n3 -  CMU - 700A (Vision Center)\n4 -  DWG - 151A (Breakroom)",
+      "end": ""
+    },
+    "7": {
+      "body": "1️⃣ CMU - 106F (Return Storage)\n2️⃣ CMU - 700F (Optical Sales) \n3️⃣ GWB - 151E (Breakroom)",
+      "end": ""
+    },
+    "8": {
+      "body": "1️⃣ CMU - 106A (Return Storage)\n2️⃣ CMU - 707A (Hallway)\n3️⃣ CMU - 802A (Storage)\n4️⃣ GWB - 151E (Breakroom)\n5️⃣ GWB - 400A (Utility",
+      "end": ""
+    },
+    "9": {
+      "body": "1️⃣ CMU - 106A (Return Storage)\n2️⃣ CMU - 707A (Waiting)\n3️⃣ CMU - 808A (GamePlay)\n4️⃣ GWB - 151E (Breakroom) \n5️⃣ Extra: Remove and relocate bike racks (near to door 707A)",
+      "end": ""
+    },
+    "10": {
+      "body": "1️⃣ CMU - 106A (Return Storage) - \n2️⃣ CMU - 707A (Waiting Area) -\n3️⃣ GWB - 151E (Breakroom) -\n4️⃣ GWB - 804A (Tenant) -\n5️⃣ Extra - Tenant new drywall partition -",
+      "end": ""
+    },
+    "11": {
+      "body": "1️⃣ CMU - 707F (Vision Center) - \n2️⃣ GWB - 151E (Breakroom) -",
+      "end": ""
+    },
+    "12": {
+      "body": "1️⃣ GWB - 151E (breakroom) - \n2️⃣ CMU - 713A (hallway) - \n3️⃣ CMU - 801B (vacant tenant) -\n4️⃣ GWB - 802B (vacant tenant 2) -",
+      "end": ""
+    }
+  }
+}
