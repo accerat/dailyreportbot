@@ -1,4 +1,4 @@
-
+﻿
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
@@ -8,13 +8,14 @@ export async function runReminderPass(onlyProjectId=null){
   const rows=onlyProjectId?targets.filter(p=>p.id===onlyProjectId):targets;
   let attempts=0;
   for(const p of rows){
-    attempts++;
+    const __status = String(p.status||"").toLowerCase(); if (__status !== "in-progress") { continue; } attempts++;
     try{
       const user=await global.client.users.fetch(p.foreman_user_id);
       const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`rem:dismiss:${p.id}`).setLabel('DISMISS').setStyle(ButtonStyle.Secondary));
-      await user.send({ content:`⏰ Daily Report Reminder — **${p.name}**\nWe don’t have today’s report (CT ${today}). You can **DISMISS** this message to hide it.`, components:[row]});
+      await user.send({ content:`â° Daily Report Reminder â€” **${p.name}**\nWe donâ€™t have todayâ€™s report (CT ${today}). You can **DISMISS** this message to hide it.`, components:[row]});
       await store.logReminder(p.id, today, hour);
     }catch{}
   }
   return attempts;
 }
+

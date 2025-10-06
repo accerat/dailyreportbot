@@ -36,7 +36,7 @@ export async function setTemplateForProject(projectId, value){
   if (typeof value === 'string'){
     d.byProjectId[String(projectId)] = value;
   } else if (value && typeof value === 'object'){
-    d.byProjectId[String(projectId)] = { body: String(value.body || ''), end: String(value.end || '') };
+    d.byProjectId[String(projectId)] = { body: String(value.body || ''), end: String(value.end || ''), start: String(value.start || '') };
   } else {
     d.byProjectId[String(projectId)] = '';
   }
