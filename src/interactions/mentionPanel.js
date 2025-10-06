@@ -1,4 +1,4 @@
-﻿// src/interactions/mentionPanel.js
+// src/interactions/mentionPanel.js
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -11,7 +11,6 @@ import {
   StringSelectMenuBuilder,
   UserSelectMenuBuilder,
 } from 'discord.js';
-
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
 import { postExecutiveCompletionSummary } from '../services/health.js';
@@ -25,12 +24,12 @@ const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your 
 function buildProjectPanelEmbed(project){
   const statusKey = normalizeStatus(project.status);
   const statusLabel = STATUS_LABEL[statusKey] || 'Started';
-  const foreman = project.foreman_display || 'â€”';
-  const start = project.start_date || 'â€”';
-  const reminder = project.reminder_time || 'â€”';
+  const foreman = project.foreman_display || '—';
+  const start = project.start_date || '—';
+  const reminder = project.reminder_time || '—';
 
   return new EmbedBuilder()
-    .setTitle(`Project Panel â€” ${project.name}`)
+    .setTitle(`Project Panel — ${project.name}`)
     .addFields(
       { name: 'Status', value: statusLabel, inline: true },
       { name: 'Foreman', value: foreman, inline: true },
@@ -63,7 +62,7 @@ async function ensureProject(thread){
 }
 
 async function showReportModal(interaction, project){
-  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report â€” ${project.name}`);
+  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
 
   const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   try {
@@ -194,19 +193,19 @@ export function wireInteractions(client){
         await store.updateProjectFields(project.id, _update);
 
         const embed = new EmbedBuilder()
-          .setTitle(`Daily Report â€” ${project.name}`)
-          .setDescription(synopsis || 'â€”')
+          .setTitle(`Daily Report — ${project.name}`)
+          .setDescription(synopsis || '—')
           .addFields(
             { name: 'Completed By', value: (i.member?.displayName || i.user.username), inline: true },
             { name: 'Submitted (Discord)', value: i.user.tag, inline: true },
-            { name: 'Foreman', value: project.foreman_display || 'â€”', inline: true },
-            { name: 'Percent Complete', value: `${report.percent_complete ?? 'â€”'}%`, inline: true },
+            { name: 'Foreman', value: project.foreman_display || '—', inline: true },
+            { name: 'Percent Complete', value: `${report.percent_complete ?? '—'}%`, inline: true },
             ...(report.completion_date ? [{ name: 'Anticipated End', value: String(report.completion_date), inline: true }] : []),
-            { name: '# Guys', value: String(report.man_count ?? 'â€”'), inline: true },
-            { name: 'Man-hours', value: String(report.man_hours ?? 'â€”'), inline: true },
+            { name: '# Guys', value: String(report.man_count ?? '—'), inline: true },
+            { name: 'Man-hours', value: String(report.man_hours ?? '—'), inline: true },
             ...(report.health_score ? [{ name: 'Health Score', value: `${report.health_score} / 5`, inline: true }] : []),
             ...(blockers ? [{ name: 'Blockers', value: blockers, inline: false }] : []),
-            ...(plan ? [{ name: 'Tomorrowâ€™s Plan', value: plan, inline: false }] : []),
+            ...(plan ? [{ name: 'Tomorrow’s Plan', value: plan, inline: false }] : []),
           )
           .setTimestamp();
 
@@ -247,108 +246,10 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
 
       
       // Template buttons
-            if (i.isButton() && i.customId.startsWith('tmpl:set:')){
-        const pid = Number(i.customId.split(':').pop());
-
-        // Show foreman/time pickers + a button that opens the actual template text modal
-        const rowUser = new ActionRowBuilder().addComponents(
-          new UserSelectMenuBuilder()
-            .setCustomId(`foreman:pick:${pid}`)
-            .setPlaceholder('Select a foreman')
-            .setMinValues(1).setMaxValues(1)
-        );
-        const rowTime = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`foreman:time:${pid}`)
-            .setPlaceholder('Reminder time (local)')
-            .addOptions(['06:30','12:00','19:00','20:00'].map(v => ({ label: v, value: v })))
-        );
-        const rowOpen = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`tmpl:modal:${pid}`).setLabel('Edit Template Text').setStyle(ButtonStyle.Primary)
-        );
-        return i.reply({ content: 'Template settings:', components: [rowUser, rowTime, rowOpen], ephemeral: true });
-      }
-
-      if (i.isButton() && i.customId.startsWith('tmpl:modal:')){
-        const pid = Number(i.customId.split(':').pop());
-        const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle('Set Daily Summary Template');
-
-        const existing = await templates.getTemplateForProject(pid).catch(()=>null);
-
-        const body = new TextInputBuilder()
-          .setCustomId('tmpl_body')
-          .setLabel('Template text (prefills Daily Summary)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(false);
-        if (existing) {
-          if (typeof existing === 'string') body.setValue(String(existing).slice(0, 4000));
-          else if (existing.body)        body.setValue(String(existing.body).slice(0, 4000));
-        }
-
-        const start = new TextInputBuilder()
-          .setCustomId('tmpl_start')
-          .setLabel('Anticipated Start (MM/DD/YYYY)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-        if (existing && typeof existing === 'object' && existing.start) start.setValue(String(existing.start).slice(0,100));
-
-        const end = new TextInputBuilder()
-          .setCustomId('tmpl_end')
-          .setLabel('Anticipated End (MM/DD/YYYY)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-        if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0,100));
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(body),
-          new ActionRowBuilder().addComponents(start),
-          new ActionRowBuilder().addComponents(end),
-        );
-        return i.showModal(modal);
-      }
-
-      if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
-        const pid   = Number(i.customId.split(':').pop());
-        const body  = (i.fields.getTextInputValue('tmpl_body')  || '').trim();
-        const start = (i.fields.getTextInputValue('tmpl_start') || '').trim();
-        const end   = (i.fields.getTextInputValue('tmpl_end')   || '').trim();
-
-        // persist template body/start/end
-        await templates.setTemplateForProject(pid, { body, start, end });
-
-        // also stamp start_date onto the project if provided
-        const updates = {};
-        if (start) updates.start_date = start;
-        if (Object.keys(updates).length) {
-          await store.updateProjectFields(pid, updates);
-        }
-        return i.reply({ content: 'Template saved.', ephemeral: true });
-      }
-
-      // Foreman pick
-      if (i.isUserSelectMenu() && i.customId.startsWith('foreman:pick:')){
-        const pid = Number(i.customId.split(':').pop());
-        const uid = i.values[0];
-        const member = await i.guild.members.fetch(uid).catch(()=>null);
-        const display = member?.displayName || member?.user?.username || uid;
-
-        // Optional role check (kept lenient): only warn if a specific role is configured
-        const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
-        if (roleId && member && !member.roles.cache.has(roleId)) {
-          return i.reply({ content: 'Selected user does not have the Foreman role.', ephemeral: true });
-        }
-
-        await store.updateProjectFields(pid, { foreman_user_id: uid, foreman_display: display });
-        return i.reply({ content: `Foreman set to ${display}.`, ephemeral: true });
-      }
-
-      // Foreman reminder time pick
-      if (i.isStringSelectMenu() && i.customId.startsWith('foreman:time:')){
-        const pid = Number(i.customId.split(':').pop());
-        const v = i.values[0];
-        await store.updateProjectFields(pid, { reminder_time: v });
-        return i.reply({ content: `Reminder time set to ${v}.`, ephemeral: true });
-      });
+      if (i.isButton() && i.customId.startsWith('tmpl:set:')){
+  const pid = Number(i.customId.split(':').pop());
+  const project = await store.getProjectById(pid);
+  if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
   const existing = await templates.getTemplateForProject(pid);
 
   const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle(`Set Daily Summary Template`);
@@ -481,4 +382,3 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
     }
   });
 }
-
