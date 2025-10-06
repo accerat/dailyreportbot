@@ -106,7 +106,7 @@ client.on(Events.InteractionCreate, async (i) => {
 // Wire up message-based interactions (mentions + panel)
 console.log('[index] calling wireInteractions() â€¦');
 wireInteractions(client);
-
+startAutoStartJob(client);
 // Mirror Daily Reports into #daily-reports with 'Jump to Request'
 wireDailyReportsForwarding(client);
 
@@ -116,3 +116,4 @@ startKeepAlive(client).listen(port, () => {
 });
 
 client.login(process.env.BOT_TOKEN);
+

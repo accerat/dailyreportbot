@@ -246,7 +246,7 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
 
       
       // Template buttons
-      if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
+      if (i.isButton() && i.customId.startsWith('tmpl:edit-disabled:')){
   const pid = Number(i.customId.split(':').pop());
   const project = await store.getProjectById(pid);
   if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
@@ -331,7 +331,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
       }
 
               // --- New Template modal flow (body/start/end/foreman/time) ---
-        if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
+        if (i.isButton() && i.customId.startsWith('tmpl:edit-disabled:')){
           const pid = Number(i.customId.split(':').pop());
           const existing = await templates.getTemplateForProject(pid).catch(()=>null);
 
@@ -465,4 +465,5 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
     }
   });
 }
+
 
