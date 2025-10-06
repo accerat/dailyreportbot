@@ -1,4 +1,4 @@
-// src/index.js
+﻿// src/index.js
 import 'dotenv/config';
 import {
   Client,
@@ -104,7 +104,7 @@ client.on(Events.InteractionCreate, async (i) => {
 });
 
 // Wire up message-based interactions (mentions + panel)
-console.log('[index] calling wireInteractions() …');
+console.log('[index] calling wireInteractions() â€¦');
 wireInteractions(client);
 
 // Mirror Daily Reports into #daily-reports with 'Jump to Request'

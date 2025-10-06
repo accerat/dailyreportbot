@@ -1,4 +1,4 @@
-// src/interactions/mentionPanel.js
+﻿// src/interactions/mentionPanel.js
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -24,12 +24,12 @@ const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your 
 function buildProjectPanelEmbed(project){
   const statusKey = normalizeStatus(project.status);
   const statusLabel = STATUS_LABEL[statusKey] || 'Started';
-  const foreman = project.foreman_display || '—';
-  const start = project.start_date || '—';
-  const reminder = project.reminder_time || '—';
+  const foreman = project.foreman_display || 'â€”';
+  const start = project.start_date || 'â€”';
+  const reminder = project.reminder_time || 'â€”';
 
   return new EmbedBuilder()
-    .setTitle(`Project Panel — ${project.name}`)
+    .setTitle(`Project Panel â€” ${project.name}`)
     .addFields(
       { name: 'Status', value: statusLabel, inline: true },
       { name: 'Foreman', value: foreman, inline: true },
@@ -43,7 +43,7 @@ function rowMain(project){
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`dr:open:${project.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`panel:status:${project.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`tmpl:set:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tmpl:edit2:${project.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary),
   );
 }
 
@@ -62,7 +62,7 @@ async function ensureProject(thread){
 }
 
 async function showReportModal(interaction, project){
-  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
+  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report â€” ${project.name}`);
 
   const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   try {
@@ -193,19 +193,19 @@ export function wireInteractions(client){
         await store.updateProjectFields(project.id, _update);
 
         const embed = new EmbedBuilder()
-          .setTitle(`Daily Report — ${project.name}`)
-          .setDescription(synopsis || '—')
+          .setTitle(`Daily Report â€” ${project.name}`)
+          .setDescription(synopsis || 'â€”')
           .addFields(
             { name: 'Completed By', value: (i.member?.displayName || i.user.username), inline: true },
             { name: 'Submitted (Discord)', value: i.user.tag, inline: true },
-            { name: 'Foreman', value: project.foreman_display || '—', inline: true },
-            { name: 'Percent Complete', value: `${report.percent_complete ?? '—'}%`, inline: true },
+            { name: 'Foreman', value: project.foreman_display || 'â€”', inline: true },
+            { name: 'Percent Complete', value: `${report.percent_complete ?? 'â€”'}%`, inline: true },
             ...(report.completion_date ? [{ name: 'Anticipated End', value: String(report.completion_date), inline: true }] : []),
-            { name: '# Guys', value: String(report.man_count ?? '—'), inline: true },
-            { name: 'Man-hours', value: String(report.man_hours ?? '—'), inline: true },
+            { name: '# Guys', value: String(report.man_count ?? 'â€”'), inline: true },
+            { name: 'Man-hours', value: String(report.man_hours ?? 'â€”'), inline: true },
             ...(report.health_score ? [{ name: 'Health Score', value: `${report.health_score} / 5`, inline: true }] : []),
             ...(blockers ? [{ name: 'Blockers', value: blockers, inline: false }] : []),
-            ...(plan ? [{ name: 'Tomorrow’s Plan', value: plan, inline: false }] : []),
+            ...(plan ? [{ name: 'Tomorrowâ€™s Plan', value: plan, inline: false }] : []),
           )
           .setTimestamp();
 
@@ -246,7 +246,7 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
 
       
       // Template buttons
-      if (i.isButton() && i.customId.startsWith('tmpl:set:')){
+      if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
   const pid = Number(i.customId.split(':').pop());
   const project = await store.getProjectById(pid);
   if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
@@ -330,7 +330,90 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         return i.reply({ content: `Reminder time set to ${v}.`, ephemeral: true });
       }
 
-      if (i.isButton() && i.customId.startsWith('panel:status:')){
+              // --- New Template modal flow (body/start/end/foreman/time) ---
+        if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
+          const pid = Number(i.customId.split(':').pop());
+          const existing = await templates.getTemplateForProject(pid).catch(()=>null);
+
+          const modal = new ModalBuilder().setCustomId(`tmpl:save2:${pid}`).setTitle('Set Daily Summary Template');
+
+          const body = new TextInputBuilder()
+            .setCustomId('tmpl_body')
+            .setLabel('Template text (prefills Daily Summary)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false);
+          if (existing && typeof existing === 'object' && existing.body) body.setValue(String(existing.body).slice(0, 4000));
+
+          const start = new TextInputBuilder()
+            .setCustomId('tmpl_start')
+            .setLabel('Anticipated Start (MM/DD/YYYY)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+          if (existing && typeof existing === 'object' && existing.start) start.setValue(String(existing.start).slice(0, 100));
+
+          const end = new TextInputBuilder()
+            .setCustomId('tmpl_end')
+            .setLabel('Anticipated End (MM/DD/YYYY)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+          if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+
+          const foreman = new TextInputBuilder()
+            .setCustomId('tmpl_foreman')
+            .setLabel('Foreman (mention or ID)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const time = new TextInputBuilder()
+            .setCustomId('tmpl_time')
+            .setLabel('Daily Reminder Time (HH:MM 24h)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(body),
+            new ActionRowBuilder().addComponents(start),
+            new ActionRowBuilder().addComponents(end),
+            new ActionRowBuilder().addComponents(foreman),
+            new ActionRowBuilder().addComponents(time),
+          );
+          return i.showModal(modal);
+        }
+
+        if (i.isModalSubmit() && i.customId.startsWith('tmpl:save2:')){
+          const pid   = Number(i.customId.split(':').pop());
+          const body  = (i.fields.getTextInputValue('tmpl_body')  || '').trim();
+          const start = (i.fields.getTextInputValue('tmpl_start') || '').trim();
+          const end   = (i.fields.getTextInputValue('tmpl_end')   || '').trim();
+          const fore  = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
+          const time  = (i.fields.getTextInputValue('tmpl_time')    || '').trim();
+
+          // persist template body/start/end
+          await templates.setTemplateForProject(pid, { body, start, end });
+
+          // also stamp fields onto the project
+          const updates = {};
+          if (start) updates.start_date = start;
+          if (time)  updates.reminder_time = time;
+
+          if (fore){
+            let uid = fore;
+            const m = fore.match(/^<@!?(\d+)>$/);
+            if (m) uid = m[1];
+            try{
+              const member = await i.guild.members.fetch(uid).catch(()=>null);
+              updates.foreman_user_id = uid;
+              updates.foreman_display = member?.displayName || member?.user?.username || uid;
+            }catch{}
+          }
+
+          if (Object.keys(updates).length){
+            await store.updateProjectFields(pid, updates);
+          }
+
+          return i.reply({ content: 'Template & fields saved.', ephemeral: true });
+        }
+        if (i.isButton() && i.customId.startsWith('panel:status:')){
         const pid = Number(i.customId.split(':').pop());
         const menu = new StringSelectMenuBuilder()
           .setCustomId(`status:set:${pid}`)
@@ -382,3 +465,4 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
     }
   });
 }
+
