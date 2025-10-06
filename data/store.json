@@ -25,6 +25,78 @@
       "type": "uhc",
       "id": 2,
       "completion_date": "9/4/2025"
+    },
+    {
+      "name": "Pinellas Park, FL - 1390.1006",
+      "thread_channel_id": "1413164224632459284",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 3,
+      "foreman_user_id": "1404918954258071645",
+      "foreman_display": "Kenny Reyes",
+      "completion_date": "11/1/2025",
+      "last_report_date": "2025-10-05"
+    },
+    {
+      "name": "Porter, TX - 297.1003",
+      "thread_channel_id": "1405592113411920043",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 4,
+      "foreman_user_id": "380070291075760139",
+      "foreman_display": "Anthony Tovar",
+      "completion_date": "10/08/2025",
+      "last_report_date": "2025-10-04"
+    },
+    {
+      "name": "Presque Isle, ME - 1924.1004",
+      "thread_channel_id": "1422222782950932650",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 5
+    },
+    {
+      "name": "Apopka, FL - 955.1008",
+      "thread_channel_id": "1415484951763222529",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 6
+    },
+    {
+      "name": "Pensacola, FL - 1222.1004",
+      "thread_channel_id": "1413162610576199763",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 7
+    },
+    {
+      "name": "Kearney, NE - 598.1003",
+      "thread_channel_id": "1405584763615711282",
+      "start_date": "2025-10-04",
+      "status": "complete_no_gobacks",
+      "reminder_time": "19:00",
+      "id": 8
+    },
+    {
+      "name": "Grand Island, NE - 3395.1005",
+      "thread_channel_id": "1412081821562441828",
+      "start_date": "2025-10-04",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 9
+    },
+    {
+      "name": "Bolivar, MO UHC - 00046 - 1002",
+      "thread_channel_id": "1402761158229889177",
+      "start_date": "2025-10-05",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 10
     }
   ],
   "daily_reports": [
@@ -149,6 +221,40 @@
       ],
       "photos": [],
       "completion_date": "9/4/2025"
+    },
+    {
+      "id": 9,
+      "project_id": 4,
+      "author_user_id": "380070291075760139",
+      "created_at": "2025-10-04T20:26:40.275-05:00",
+      "report_date": "2025-10-04",
+      "synopsis": "Started replacing face shells and started pouring back grout as we went.",
+      "percent_complete": null,
+      "man_count": 3,
+      "man_hours": 14,
+      "health_score": 5,
+      "blockers": null,
+      "tomorrow_plan": null,
+      "triggers": [],
+      "photos": [],
+      "completion_date": "10/08/2025"
+    },
+    {
+      "id": 10,
+      "project_id": 3,
+      "author_user_id": "1404918954258071645",
+      "created_at": "2025-10-05T16:24:03.066-05:00",
+      "report_date": "2025-10-05",
+      "synopsis": "1️⃣ CMU - 106A (Return Storage) - \n2️⃣ CMU - 700E (Vision Center) - 90% \n3️⃣ CMU - 803E (White Box) - \n4️⃣ CMU - 805A (Devi Nails) - \n5️⃣ CMU - 806A (Money Center) - \n6️⃣ GWB - 151E (Breakroom) -\n7️⃣ Any add or misc unlisted work -",
+      "percent_complete": 70,
+      "man_count": 6,
+      "man_hours": 9,
+      "health_score": null,
+      "blockers": null,
+      "tomorrow_plan": null,
+      "triggers": [],
+      "photos": [],
+      "completion_date": "11/1/2025"
     }
   ],
   "trigger_events": [
@@ -205,6 +311,38 @@
     {
       "project_id": 1,
       "ct_date": "2025-08-23"
+    },
+    {
+      "project_id": 1,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 2,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 3,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 5,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 6,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 7,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 8,
+      "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 9,
+      "ct_date": "2025-10-04"
     }
   ],
   "settings": {
