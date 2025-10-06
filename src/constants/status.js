@@ -7,7 +7,7 @@ export const STATUS = {
 };
 
 export const STATUS_LABEL = {
-  [STATUS.STARTED]: 'Started',
+  [STATUS.STARTED]: 'Upcoming',
   [STATUS.ON_HOLD]: 'On Hold',
   [STATUS.IN_PROGRESS]: 'In Progress',
   [STATUS.LEAVING_INCOMPLETE]: 'Leaving & Incomplete',
