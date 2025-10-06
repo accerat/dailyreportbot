@@ -1,0 +1,125 @@
+*** Begin Patch
+*** Update File: src/interactions/mentionPanel.js
+@@
+   if (i.isButton() && i.customId.startsWith('tmpl:set:')){
+-    const pid = Number(i.customId.split(':').pop());
+-    const existing = await templates.getTemplateForProject(pid);
+-    const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle(`Set Daily Summary Template`);
+-    const body = new TextInputBuilder().setCustomId('tmpl_body').setLabel('Template text (prefills Daily Summary)').setStyle(TextInputStyle.Paragraph).setRequired(false);
+-    if (existing) {
+-      if (typeof existing === 'string') body.setValue(String(existing).slice(0, 4000));
+-      else if (existing.body) body.setValue(String(existing.body).slice(0, 4000));
+-    }
+-    const end = new TextInputBuilder().setCustomId('tmpl_end').setLabel('Anticipated End Date (MM/DD/YYYY)').setStyle(TextInputStyle.Short).setRequired(false);
+-    if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+-    modal.addComponents(
+-      new ActionRowBuilder().addComponents(body),
+-      new ActionRowBuilder().addComponents(end)
+-    );
+-    return i.showModal(modal);
++    const pid = Number(i.customId.split(':').pop());
++    const existing = await templates.getTemplateForProject(pid);
++    const project  = await store.getProjectById(pid);
++
++    const modal = new ModalBuilder().setCustomId(`tmpl:save:${pid}`).setTitle(`Set Daily Summary Template`);
++
++    const body = new TextInputBuilder()
++      .setCustomId('tmpl_body')
++      .setLabel('Template text (prefills Daily Summary)')
++      .setStyle(TextInputStyle.Paragraph)
++      .setRequired(false);
++    if (existing) {
++      if (typeof existing === 'string') body.setValue(String(existing).slice(0, 4000));
++      else if (existing.body) body.setValue(String(existing.body).slice(0, 4000));
++    }
++
++    const end = new TextInputBuilder()
++      .setCustomId('tmpl_end')
++      .setLabel('Anticipated End Date (MM/DD/YYYY)')
++      .setStyle(TextInputStyle.Short)
++      .setRequired(false);
++    if (existing && typeof existing === 'object' && existing.end) {
++      end.setValue(String(existing.end).slice(0, 100));
++    }
++
++    const start = new TextInputBuilder()
++      .setCustomId('tmpl_start')
++      .setLabel('Anticipated Start Date (MM/DD/YYYY)')
++      .setStyle(TextInputStyle.Short)
++      .setRequired(false);
++    if (project?.start_date) start.setValue(String(project.start_date).slice(0, 100));
++
++    const time = new TextInputBuilder()
++      .setCustomId('tmpl_time')
++      .setLabel('Daily Reminder Time (HH:MM, local)')
++      .setStyle(TextInputStyle.Short)
++      .setRequired(false);
++    if (project?.reminder_time) time.setValue(String(project.reminder_time).slice(0, 20));
++
++    modal.addComponents(
++      new ActionRowBuilder().addComponents(body),
++      new ActionRowBuilder().addComponents(end),
++      new ActionRowBuilder().addComponents(start),
++      new ActionRowBuilder().addComponents(time),
++    );
++    return i.showModal(modal);
+   }
+@@
+-  if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
+-    const pid = Number(i.customId.split(':').pop());
+-    const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
+-    const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
+-    if (body.length === 0 && end.length === 0){
+-      await templates.clearTemplateForProject(pid);
+-      return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
+-    } else {
+-      await templates.setTemplateForProject(pid, { body, end });
+-      return i.reply({ content: 'Template saved.', ephemeral: true });
+-    }
+-  }
++  if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
++    const pid   = Number(i.customId.split(':').pop());
++    const body  = (i.fields.getTextInputValue('tmpl_body')  || '').trim();
++    const end   = (i.fields.getTextInputValue('tmpl_end')   || '').trim();
++    const start = (i.fields.getTextInputValue('tmpl_start') || '').trim();
++    const time  = (i.fields.getTextInputValue('tmpl_time')  || '').trim();
++
++    // Save per-project template body/end
++    if (body.length === 0 && end.length === 0){
++      await templates.clearTemplateForProject(pid);
++    } else {
++      await templates.setTemplateForProject(pid, { body, end });
++    }
++
++    // Persist start date / reminder time as project fields
++    const updates = {};
++    if (start) updates.start_date = start;
++    if (time)  updates.reminder_time = time;
++    if (Object.keys(updates).length) {
++      await store.updateProjectFields(pid, updates);
++    }
++
++    // Offer to set a Foreman right now (user picker)
++    const pick = new UserSelectMenuBuilder()
++      .setCustomId(`foreman:pick:${pid}`)
++      .setPlaceholder('Select Foreman')
++      .setMinValues(1)
++      .setMaxValues(1);
++    const row = new ActionRowBuilder().addComponents(pick);
++    return i.reply({
++      content: 'Template/fields saved. Optionally set a Foreman:',
++      components: [row],
++      ephemeral: true
++    });
++  }
++
++  // Foreman selection handler (stores foreman_user_id/display)
++  if (i.isUserSelectMenu() && i.customId.startsWith('foreman:pick:')){
++    const pid = Number(i.customId.split(':').pop());
++    const uid = i.values[0];
++    const member = await i.guild?.members?.fetch?.(uid).catch(()=>null);
++    const display = (member?.displayName || member?.user?.username || uid);
++    await store.updateProjectFields(pid, { foreman_user_id: uid, foreman_display: display });
++    return i.update({ content: `Foreman set to ${display}.`, components: [] });
++  }
+*** End Patch

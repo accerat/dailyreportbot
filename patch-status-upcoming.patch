@@ -1,0 +1,24 @@
+*** Begin Patch
+*** Update File: src/constants/status.js
+@@
+ export const STATUS_LABEL = {
+-  [STATUS.STARTED]: 'Started',
++  [STATUS.STARTED]: 'Upcoming',
+   [STATUS.IN_PROGRESS]: 'In Progress',
+   [STATUS.ON_HOLD]: 'On Hold',
+   [STATUS.LEAVING_INCOMPLETE]: 'Leaving Incomplete',
+   [STATUS.COMPLETE_NO_GOBACKS]: 'Complete (No Go-Backs)',
+ };
+@@
+ export function normalizeStatus(s){
+   const str = String(s || '').toLowerCase().trim();
+-  if (str === 'started') return STATUS.STARTED;
++  // Accept either "started" or the new "upcoming" as the same internal key
++  if (str === 'started' || str === 'upcoming') return STATUS.STARTED;
+   if (str === 'in-progress' || str === 'in progress') return STATUS.IN_PROGRESS;
+   if (str === 'on-hold' || str === 'on hold') return STATUS.ON_HOLD;
+   if (str === 'leaving-incomplete' || str === 'leaving incomplete') return STATUS.LEAVING_INCOMPLETE;
+   if (str === 'complete-no-gobacks' || str === 'complete (no go-backs)' || str === 'complete') return STATUS.COMPLETE_NO_GOBACKS;
+   return STATUS.STARTED;
+ }
+*** End Patch
