@@ -300,6 +300,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
               // --- New Template modal flow (body/start/end/foreman/time) ---
         if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
           const pid = Number(i.customId.split(':').pop());
+          const proj = await store.getProjectById(pid);
           const existing = await templates.getTemplateForProject(pid).catch(()=>null);
           const modal = new ModalBuilder().setCustomId(`tmpl:save2:${pid}`).setTitle('Set Daily Summary Template');
           const body = new TextInputBuilder()
@@ -325,11 +326,13 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             .setLabel('Foreman (mention or ID)')
             .setStyle(TextInputStyle.Short)
             .setRequired(false);
+          if (proj && proj.foreman_display) foreman.setValue(String(proj.foreman_display).slice(0, 100));
           const time = new TextInputBuilder()
             .setCustomId('tmpl_time')
             .setLabel('Daily Reminder Time (HH:MM 24h)')
             .setStyle(TextInputStyle.Short)
             .setRequired(false);
+          if (proj && proj.reminder_time) time.setValue(String(proj.reminder_time).slice(0, 100));
           modal.addComponents(
             new ActionRowBuilder().addComponents(body),
             new ActionRowBuilder().addComponents(start),
@@ -350,7 +353,6 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
           await templates.setTemplateForProject(pid, { body, start, end });
           // also stamp fields onto the project
           const updates = {};
-          if (start) updates.start_date = start;
           if (time)  updates.reminder_time = time;
           if (fore){
             let uid = fore;

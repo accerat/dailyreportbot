@@ -3,15 +3,17 @@
     {
       "name": "Spring, tx",
       "thread_channel_id": "1403032289734299648",
-      "foreman_user_id": "394945913807962112",
+      "foreman_user_id": "@jorell laube",
       "reminder_start_ct": "08:00",
-      "start_date": "08/20/2025",
+      "start_date": "10/7/2025",
       "paused": false,
       "reminder_active": true,
       "track_in_summary": true,
       "type": "uhc",
       "id": 1,
-      "completion_date": "2025-12-08"
+      "completion_date": "2025-12-08",
+      "reminder_time": "10:00 24h",
+      "foreman_display": "@jorell laube"
     },
     {
       "name": "test channel",
@@ -97,6 +99,14 @@
       "status": "started",
       "reminder_time": "19:00",
       "id": 10
+    },
+    {
+      "name": "Crawfordsville, IN - 1655.1004",
+      "thread_channel_id": "1412079763199098921",
+      "start_date": "2025-10-06",
+      "status": "started",
+      "reminder_time": "19:00",
+      "id": 11
     }
   ],
   "daily_reports": [
@@ -343,6 +353,50 @@
     {
       "project_id": 9,
       "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 1,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 2,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 3,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 4,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 5,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 6,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 7,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 8,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 9,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 10,
+      "ct_date": "2025-10-06"
+    },
+    {
+      "project_id": 11,
+      "ct_date": "2025-10-06"
     }
   ],
   "settings": {

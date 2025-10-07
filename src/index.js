@@ -117,3 +117,14 @@ startKeepAlive(client).listen(port, () => {
 
 client.login(process.env.BOT_TOKEN);
 
+
+import { ModalBuilder } from 'discord.js';
+
+// Guard modal titles against non-ASCII / length issues
+const __realSetTitle = ModalBuilder.prototype.setTitle;
+ModalBuilder.prototype.setTitle = function(t){
+  const s = String(t ?? '')
+    .replace(/[^\x20-\x7E]/g, '-')  // strip weird Unicode
+    .slice(0, 44) || 'Form';
+  return __realSetTitle.call(this, s);
+};
