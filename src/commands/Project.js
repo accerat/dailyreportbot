@@ -49,7 +49,7 @@ export async function execute(interaction) {
   if (!proj) {
     return interaction.reply({
       content: 'This thread/channel is not tracked as a project yet.',
-      ephemeral: true,
+      flags: 64,
     });
   }
 
@@ -61,31 +61,31 @@ export async function execute(interaction) {
         `**Closed:** ${proj.is_closed ? 'Yes' : 'No'}`,
         proj.closed_reason ? `**Closed Reason:** ${proj.closed_reason}` : null,
       ].filter(Boolean);
-      return interaction.reply({ content: fields.join('\n'), ephemeral: true });
+      return interaction.reply({ content: fields.join('\n'), flags: 64 });
     }
     const updated = await setProjectStatusByThread(threadId, value);
     if (!updated) {
-      return interaction.reply({ content: 'Could not update status.', ephemeral: true });
+      return interaction.reply({ content: 'Could not update status.', flags: 64 });
     }
-    return interaction.reply({ content: `Status set to **${updated.status}**.`, ephemeral: false });
+    return interaction.reply({ content: `Status set to **${updated.status}**.`, flags: 0 });
   }
 
   if (sub === 'close') {
     const reason = interaction.options.getString('reason') || undefined;
     const updated = await closeProjectByThread(threadId, { reason, closedBy: interaction.user.id });
     if (!updated) {
-      return interaction.reply({ content: 'Could not close project.', ephemeral: true });
+      return interaction.reply({ content: 'Could not close project.', flags: 64 });
     }
     const msg = [`🛑 Project closed.`];
     if (reason) msg.push(`Reason: ${reason}`);
-    return interaction.reply({ content: msg.join(' '), ephemeral: false });
+    return interaction.reply({ content: msg.join(' '), flags: 0 });
   }
 
   if (sub === 'reopen') {
     const updated = await reopenProjectByThread(threadId, { reopenedBy: interaction.user.id });
     if (!updated) {
-      return interaction.reply({ content: 'Could not reopen project.', ephemeral: true });
+      return interaction.reply({ content: 'Could not reopen project.', flags: 64 });
     }
-    return interaction.reply({ content: '✅ Project re-opened.', ephemeral: false });
+    return interaction.reply({ content: '✅ Project re-opened.', flags: 0 });
   }
 }

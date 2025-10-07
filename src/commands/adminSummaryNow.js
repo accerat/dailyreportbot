@@ -8,7 +8,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   try {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
     const forumId = process.env.PROJECT_DAILY_SUMMARIES_FORUM_ID;
     if (!forumId) {
       await interaction.editReply('Missing PROJECT_DAILY_SUMMARIES_FORUM_ID in .env');

@@ -19,7 +19,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(i) {
   if (!isAdmin(i)) return;
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: 64 });
   const non = i.options.getChannel('non_uhc_forum', true);
   const uhc = i.options.getChannel('uhc_forum', true);
 
@@ -34,5 +34,5 @@ function isAdmin(i) {
   const allowed = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
   if (allowed.includes(i.user.id)) return true;
   if (i.memberPermissions?.has('Administrator')) return true;
-  i.reply({ content: 'Admins only.', ephemeral: true }); return false;
+  i.reply({ content: 'Admins only.', flags: 64 }); return false;
 }
