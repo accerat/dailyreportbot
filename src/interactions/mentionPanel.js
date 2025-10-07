@@ -138,13 +138,13 @@ export function wireInteractions(client){
       if (i.isButton() && i.customId.startsWith('dr:open:')){
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        if (!project) return i.reply({ content: 'Project not found.', flags: 64 });
         return await showReportModal(i, project);
       }
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        if (!project) return i.reply({ content: 'Project not found.', flags: 64 });
         const synopsis = i.fields.getTextInputValue('synopsis')?.trim();
         const pct = Number(i.fields.getTextInputValue('pct') || '0');
         const completion_date = (i.fields.getTextInputValue('completion_date') || '').trim();
@@ -220,14 +220,14 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
             MLB_OFFICE_ROLE_ID: process.env.MLB_OFFICE_ROLE_ID,
           },
         }).catch(()=>{});
-        return i.reply({ content: 'Report submitted.', ephemeral: true });
+        return i.reply({ content: 'Report submitted.', flags: 64 });
       }
       
       // Template buttons
       if (i.isButton() && i.customId.startsWith('tmpl:edit-old:')){
   const pid = Number(i.customId.split(':').pop());
   const project = await store.getProjectById(pid);
-  if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+  if (!project) return i.reply({ content: 'Project not found.', flags: 64 });
   const existing = await templates.getTemplateForProject(pid);
   const modal = new ModalBuilder().setCustomId(`tmpl:save-old:${pid}`).setTitle(`Set Daily Summary Template`);
   const body = new TextInputBuilder()
@@ -254,7 +254,7 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
       if (i.isButton() && i.customId.startsWith('tmpl:clear:')){
         const pid = Number(i.customId.split(':').pop());
         await templates.clearTemplateForProject(pid);
-        return i.reply({ content: 'Template cleared for this project/thread.', ephemeral: true });
+        return i.reply({ content: 'Template cleared for this project/thread.', flags: 64 });
       }
       if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
   const pid = Number(i.customId.split(':').pop());
@@ -262,23 +262,23 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
   const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
   if (body.length === 0 && end.length === 0){
     await templates.clearTemplateForProject(pid);
-    return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
+    return i.reply({ content: 'Template cleared (empty).', flags: 64 });
   } else {
     await templates.setTemplateForProject(pid, { body, end });
-    return i.reply({ content: 'Template saved.', ephemeral: true });
+    return i.reply({ content: 'Template saved.', flags: 64 });
   }
       }
 if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        if (!project) return i.reply({ content: 'Project not found.', flags: 64 });
         const rowUser = new ActionRowBuilder().addComponents(
           new UserSelectMenuBuilder().setCustomId(`foreman:pick:${pid}`).setPlaceholder('Select a foreman').setMinValues(1).setMaxValues(1)
         );
         const rowTime = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder().setCustomId(`foreman:time:${pid}`).setPlaceholder('Reminder time (local)').addOptions(['06:30','12:00','19:00','20:00'].map(v => ({ label: v, value: v })))
         );
-        return i.reply({ content: 'Select new foreman and reminder time:', components: [rowUser, rowTime], ephemeral: true });
+        return i.reply({ content: 'Select new foreman and reminder time:', components: [rowUser, rowTime], flags: 64 });
       }
       if (i.isUserSelectMenu() && i.customId.startsWith('foreman:pick:')){
         const pid = Number(i.customId.split(':').pop());
@@ -286,16 +286,16 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const member = await i.guild.members.fetch(uid).catch(()=>null);
         const roleId = process.env.MLB_FOREMEN_ROLE_ID || process.env.FOREMAN_ROLE_ID;
         if (roleId && !member?.roles.cache.has(roleId)){
-          return i.reply({ content: 'Selected user does not have the Foreman role.', ephemeral: true });
+          return i.reply({ content: 'Selected user does not have the Foreman role.', flags: 64 });
         }
         await store.updateProjectFields(pid, { foreman_user_id: uid, foreman_display: (member?.displayName || member?.user?.username || uid) });
-        return i.reply({ content: 'Foreman updated.', ephemeral: true });
+        return i.reply({ content: 'Foreman updated.', flags: 64 });
       }
       if (i.isStringSelectMenu() && i.customId.startsWith('foreman:time:')){
         const pid = Number(i.customId.split(':').pop());
         const v = i.values[0];
         await store.updateProjectFields(pid, { reminder_time: v });
-        return i.reply({ content: `Reminder time set to ${v}.`, ephemeral: true });
+        return i.reply({ content: `Reminder time set to ${v}.`, flags: 64 });
       }
               // --- New Template modal flow (body/start/end/foreman/time) ---
         if (i.isButton() && i.customId.startsWith('tmpl:edit2:')){
@@ -365,7 +365,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
           if (Object.keys(updates).length){
             await store.updateProjectFields(pid, updates);
           }
-          return i.reply({ content: 'Template & fields saved.', ephemeral: true });
+          return i.reply({ content: 'Template & fields saved.', flags: 64 });
         }
         if (i.isButton() && i.customId.startsWith('panel:status:')){
         const pid = Number(i.customId.split(':').pop());
@@ -379,7 +379,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             { label: STATUS_LABEL[STATUS.LEAVING_INCOMPLETE], value: STATUS.LEAVING_INCOMPLETE },
             { label: STATUS_LABEL[STATUS.COMPLETE_NO_GOBACKS], value: STATUS.COMPLETE_NO_GOBACKS },
           ]);
-        return i.reply({ components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+        return i.reply({ components: [new ActionRowBuilder().addComponents(menu)], flags: 64 });
       }
       if (i.isStringSelectMenu() && i.customId.startsWith('status:set:')){
         const pid = Number(i.customId.split(':').pop());
@@ -406,12 +406,12 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             await postExecutiveCompletionSummary(i.client, pid).catch(()=>{});
           }
         } catch {}
-return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
+return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, flags: 64 });
       }
     }catch(e){
       console.error('Interaction handler error:', e);
       if (!i.deferred && !i.replied){
-        await i.reply({ content: 'There was an error handling that action. Please try again.', ephemeral: true });
+        await i.reply({ content: 'There was an error handling that action. Please try again.', flags: 64 });
       } else if (i.deferred){
         await i.editReply({ content: 'There was an error handling that action. Please try again.' });
       }
