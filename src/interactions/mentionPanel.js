@@ -264,16 +264,56 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
     else if (existing.body) body.setValue(String(existing.body).slice(0, 4000));
   }
 
+  const start = new TextInputBuilder()
+    .setCustomId('tmpl_start')
+    .setLabel('Start Date (YYYY-MM-DD or MM/DD/YYYY)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+  if (existing && typeof existing === 'object' && existing.start) {
+    start.setValue(String(existing.start).slice(0, 100));
+  } else if (project.start_date) {
+    start.setValue(String(project.start_date).slice(0, 100));
+  }
+
   const end = new TextInputBuilder()
     .setCustomId('tmpl_end')
     .setLabel('Anticipated End Date (MM/DD/YYYY)')
     .setStyle(TextInputStyle.Short)
     .setRequired(false);
-  if (existing && typeof existing === 'object' && existing.end) end.setValue(String(existing.end).slice(0, 100));
+  if (existing && typeof existing === 'object' && existing.end) {
+    end.setValue(String(existing.end).slice(0, 100));
+  } else if (project.completion_date) {
+    end.setValue(String(project.completion_date).slice(0, 100));
+  }
+
+  const time = new TextInputBuilder()
+    .setCustomId('tmpl_time')
+    .setLabel('Daily Reminder Time (HH:MM, 24h)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+  if (existing && typeof existing === 'object' && existing.reminder_time) {
+    time.setValue(String(existing.reminder_time).slice(0, 20));
+  } else if (project.reminder_time) {
+    time.setValue(String(project.reminder_time).slice(0, 20));
+  }
+
+  const foreman = new TextInputBuilder()
+    .setCustomId('tmpl_foreman')
+    .setLabel('Initial Foreman (display name or @mention)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+  if (existing && typeof existing === 'object' && existing.foreman) {
+    foreman.setValue(String(existing.foreman).slice(0, 100));
+  } else if (project.foreman_display) {
+    foreman.setValue(String(project.foreman_display).slice(0, 100));
+  }
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(body),
-    new ActionRowBuilder().addComponents(end)
+    new ActionRowBuilder().addComponents(start),
+    new ActionRowBuilder().addComponents(end),
+    new ActionRowBuilder().addComponents(time),
+    new ActionRowBuilder().addComponents(foreman)
   );
   return i.showModal(modal);
 }
@@ -287,12 +327,34 @@ await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).
       if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
   const pid = Number(i.customId.split(':').pop());
   const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
-  const end = (i.fields.getTextInputValue('tmpl_end') || '').trim();
-  if (body.length === 0 && end.length === 0){
+  const startRaw = (i.fields.getTextInputValue('tmpl_start') || '').trim();
+  const endRaw = (i.fields.getTextInputValue('tmpl_end') || '').trim();
+  const timeRaw = (i.fields.getTextInputValue('tmpl_time') || '').trim();
+  const foremanRaw = (i.fields.getTextInputValue('tmpl_foreman') || '').trim();
+
+  if (body.length === 0 && startRaw.length === 0 && endRaw.length === 0 && timeRaw.length === 0 && foremanRaw.length === 0){
     await templates.clearTemplateForProject(pid);
     return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
   } else {
-    await templates.setTemplateForProject(pid, { body, end });
+    await templates.setTemplateForProject(pid, {
+      body,
+      start: startRaw,
+      end: endRaw,
+      reminder_time: timeRaw,
+      foreman: foremanRaw
+    });
+
+    // Also update the project fields
+    const updates = {};
+    if (startRaw) updates.start_date = startRaw;
+    if (endRaw) updates.completion_date = endRaw;
+    if (timeRaw) updates.reminder_time = timeRaw;
+    if (foremanRaw) updates.foreman_display = foremanRaw;
+
+    if (Object.keys(updates).length > 0) {
+      await store.updateProjectFields(pid, updates);
+    }
+
     return i.reply({ content: 'Template saved.', ephemeral: true });
   }
 
