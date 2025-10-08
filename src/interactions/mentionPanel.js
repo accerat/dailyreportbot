@@ -23,7 +23,7 @@ const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your 
 
 function buildProjectPanelEmbed(project){
   const statusKey = normalizeStatus(project.status);
-  const statusLabel = STATUS_LABEL[statusKey] || 'Started';
+  const statusLabel = STATUS_LABEL[statusKey] || STATUS_LABEL[STATUS.STARTED];
   const foreman = project.foreman_display || '—';
   const start = project.start_date || '—';
   const reminder = project.reminder_time || '—';

@@ -2,6 +2,7 @@
 import { DateTime } from 'luxon';
 import { ChannelType } from 'discord.js';
 import * as store from '../db/store.js';
+import { STATUS_LABEL, normalizeStatus } from '../constants/status.js';
 
 // --- constants & utils ---
 const CT = 'America/Chicago';
@@ -95,7 +96,8 @@ export async function postDailySummaryAll(clientParam) {
   const rows = await Promise.all(projects.map(async (p) => {
     const latest = await latestReportFor(p.id);
     const foreman = p.foreman_display || latest?.foreman_display || '—';
-    const status = p.status || (p.paused ? 'On Hold' : (p.completion_date ? 'Complete' : 'Started'));
+    const statusKey = normalizeStatus(p.status);
+    const status = STATUS_LABEL[statusKey] || STATUS_LABEL.started;
     const start = p.start_date || '—';
     const anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
 
