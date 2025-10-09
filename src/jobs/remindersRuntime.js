@@ -37,10 +37,15 @@ export async function runReminderPass(onlyProjectId=null){
 
     // Check for escalations (4-hour and 48-hour)
     try{
-      const lastReportDate = p.last_report_date;
-      if (lastReportDate) {
-        const lastReport = DateTime.fromISO(lastReportDate, {zone: 'America/Chicago'});
+      // Use last_report_datetime for accurate hour calculation, fallback to last_report_date for backwards compatibility
+      const lastReportTimestamp = p.last_report_datetime || p.last_report_date;
+      if (lastReportTimestamp) {
+        const lastReport = DateTime.fromISO(lastReportTimestamp, {zone: 'America/Chicago'});
         const hoursSince = now.diff(lastReport, 'hours').hours;
+        // Format as "10/08/2025 at 11:59 PM CT" for display
+        const lastReportDisplay = lastReport.isValid
+          ? lastReport.toFormat('MM/dd/yyyy') + ' at ' + lastReport.toFormat('h:mm a') + ' CT'
+          : (p.last_report_date || lastReportTimestamp);
 
         // 4-hour escalation: First warning to MLB Office
         if (hoursSince >= 4 && hoursSince < 48) {
@@ -48,7 +53,7 @@ export async function runReminderPass(onlyProjectId=null){
           if (shouldEscalate4h && p.thread_channel_id) {
             const thread = await global.client.channels.fetch(p.thread_channel_id);
             await thread.send({
-              content: `⚠️ **ALERT** ⚠️\n<@&${MLB_OFFICE_ROLE_ID}>\n\nNo daily report submitted for **${p.name}** in over 4 hours.\nLast report: ${lastReportDate}\nForeman: ${p.foreman_display || 'Unknown'}`,
+              content: `⚠️ **ALERT** ⚠️\n<@&${MLB_OFFICE_ROLE_ID}>\n\nNo daily report submitted for **${p.name}** in over 4 hours.\nLast report: ${lastReportDisplay}\nForeman: ${p.foreman_display || 'Unknown'}`,
               allowedMentions: { roles: [MLB_OFFICE_ROLE_ID] }
             });
             await store.logEscalation4Hour(p.id, today);
@@ -61,7 +66,7 @@ export async function runReminderPass(onlyProjectId=null){
           if (shouldEscalate && p.thread_channel_id) {
             const thread = await global.client.channels.fetch(p.thread_channel_id);
             await thread.send({
-              content: `🚨 **ESCALATION** 🚨\n<@&${MLB_OFFICE_ROLE_ID}>\n\nNo daily report submitted for **${p.name}** in over 48 hours.\nLast report: ${lastReportDate}\nForeman: ${p.foreman_display || 'Unknown'}`,
+              content: `🚨 **ESCALATION** 🚨\n<@&${MLB_OFFICE_ROLE_ID}>\n\nNo daily report submitted for **${p.name}** in over 48 hours.\nLast report: ${lastReportDisplay}\nForeman: ${p.foreman_display || 'Unknown'}`,
               allowedMentions: { roles: [MLB_OFFICE_ROLE_ID] }
             });
             await store.logEscalation(p.id, today);

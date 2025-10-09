@@ -227,7 +227,10 @@ export function wireInteractions(client){
             }
           }
         } catch (e) { console.error('daily-reports forward error', e); }
-await store.updateProjectFields(project.id, { last_report_date: now.setZone(TZ).toISODate() });
+await store.updateProjectFields(project.id, {
+  last_report_date: now.setZone(TZ).toISODate(),
+  last_report_datetime: now.toISO()
+});
         await postWeatherHazardsIfNeeded({ project: (await store.getProjectById(project.id)), channel: thread, tz: TZ }).catch(()=>{});
         await maybePingOnReport({
           channel: thread,
