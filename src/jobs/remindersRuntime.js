@@ -1,14 +1,17 @@
-﻿
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
+import { STATUS } from '../constants/status.js';
+
 export async function runReminderPass(onlyProjectId=null){
   const now=DateTime.now().setZone('America/Chicago'); const hour=now.hour; const today=now.toISODate();
   const targets=await store.projectsNeedingReminder(hour, today);
   const rows=onlyProjectId?targets.filter(p=>p.id===onlyProjectId):targets;
   let attempts=0;
   for(const p of rows){
-    const __status = String(p.status||"").toLowerCase(); if (__status !== "in-progress") { continue; } attempts++;
+    const __status = String(p.status||"").toLowerCase().replace(/[\s\-]/g, '_');
+    if (__status !== STATUS.IN_PROGRESS && __status !== STATUS.STARTED) { continue; }
+    attempts++;
     try{
       const user=await global.client.users.fetch(p.foreman_user_id);
       const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`rem:dismiss:${p.id}`).setLabel('DISMISS').setStyle(ButtonStyle.Secondary));
