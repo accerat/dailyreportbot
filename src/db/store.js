@@ -20,7 +20,8 @@ const defaultState = {
   daily_reports: [],
   trigger_events: [],
   reminder_log: [],
-  missed_reports: []
+  missed_reports: [],
+  escalation_log: []
 };
 
 
@@ -66,10 +67,6 @@ export async function projectsNeedingReminder(ctHour, today) {
     if (p.paused) return false;
     if (p.reminder_active === false) return false;
     if (alreadyReminded(p.id, today, ctHour)) return false;
-
-    // match hour
-    const h = Number(String(p.reminder_time || p.reminder_start_ct || '19:00').split(':')[0]) || 19;
-    if (h !== Number(ctHour)) return false;
 
     // core rules
     const status = normStatus(p.status);
@@ -222,6 +219,25 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
   if (p.status === 'closed' || !p.status) p.status = 'open';
   await save(s);
   return p;
+}
+
+// Escalation tracking for 48-hour reminder escalations
+export async function shouldEscalate(pid, date) {
+  const s = await load();
+  s.escalation_log = s.escalation_log || [];
+  // Only escalate once per day
+  return !s.escalation_log.some(e => e.project_id === pid && e.ct_date === date);
+}
+
+export async function logEscalation(pid, date) {
+  const s = await load();
+  s.escalation_log = s.escalation_log || [];
+  if (!s.escalation_log.some(e => e.project_id === pid && e.ct_date === date)) {
+    s.escalation_log.push({ project_id: pid, ct_date: date });
+    await save(s);
+    return true;
+  }
+  return false;
 }
 
  // end added more exports
