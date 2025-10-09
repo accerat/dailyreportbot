@@ -352,7 +352,27 @@ await store.updateProjectFields(project.id, {
     if (startRaw) updates.start_date = startRaw;
     if (endRaw) updates.completion_date = endRaw;
     if (timeRaw) updates.reminder_time = timeRaw;
-    if (foremanRaw) updates.foreman_display = foremanRaw;
+
+    // If foreman is provided, try to extract user ID and fetch display name
+    if (foremanRaw) {
+      // Extract user ID from mention format <@123456> or plain ID 123456
+      const userIdMatch = foremanRaw.match(/<@!?(\d+)>/) || foremanRaw.match(/^(\d+)$/);
+      if (userIdMatch) {
+        const userId = userIdMatch[1];
+        try {
+          const user = await i.client.users.fetch(userId);
+          const member = await i.guild.members.fetch(userId).catch(() => null);
+          updates.foreman_user_id = userId;
+          updates.foreman_display = member?.displayName || user.username;
+        } catch {
+          // If fetch fails, just use the raw input
+          updates.foreman_display = foremanRaw;
+        }
+      } else {
+        // Not a user ID, just use as display name
+        updates.foreman_display = foremanRaw;
+      }
+    }
 
     if (Object.keys(updates).length > 0) {
       await store.updateProjectFields(pid, updates);
