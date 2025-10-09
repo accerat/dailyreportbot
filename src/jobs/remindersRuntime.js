@@ -19,19 +19,31 @@ export async function runReminderPass(onlyProjectId=null){
     // Send DM reminder to foreman
     try{
       const user=await global.client.users.fetch(p.foreman_user_id);
-      const row=new ActionRowBuilder().addComponents(
+
+      // Row 1: Main action buttons
+      const row1=new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`dr:open:${p.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`panel:status:${p.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`tmpl:set:${p.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary)
+      );
+
+      // Row 2: Secondary buttons (Jump to Project + Dismiss)
+      const row2=new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rem:dismiss:${p.id}`).setLabel('DISMISS').setStyle(ButtonStyle.Secondary)
       );
 
       // Add Jump to Project button if we have the thread channel
       if (p.thread_channel_id && GUILD_ID) {
         const jumpUrl = `https://discord.com/channels/${GUILD_ID}/${p.thread_channel_id}`;
-        row.addComponents(
+        row2.addComponents(
           new ButtonBuilder().setURL(jumpUrl).setLabel('Jump to Project').setStyle(ButtonStyle.Link)
         );
       }
 
-      await user.send({ content:`⏰ Daily Report Reminder — **${p.name}**\nWe don't have today's report (CT ${today}). You can **DISMISS** this message to hide it.`, components:[row]});
+      await user.send({
+        content:`⏰ Daily Report Reminder — **${p.name}**\nWe don't have today's report (CT ${today}).`,
+        components:[row1, row2]
+      });
       await store.logReminder(p.id, today, hour);
     }catch{}
 
