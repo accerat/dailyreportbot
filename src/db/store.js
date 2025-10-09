@@ -21,7 +21,8 @@ const defaultState = {
   trigger_events: [],
   reminder_log: [],
   missed_reports: [],
-  escalation_log: []
+  escalation_log: [],
+  escalation_4hour_log: []
 };
 
 
@@ -219,6 +220,25 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
   if (p.status === 'closed' || !p.status) p.status = 'open';
   await save(s);
   return p;
+}
+
+// Escalation tracking for 4-hour reminder escalations
+export async function shouldEscalate4Hour(pid, date) {
+  const s = await load();
+  s.escalation_4hour_log = s.escalation_4hour_log || [];
+  // Only escalate once per day
+  return !s.escalation_4hour_log.some(e => e.project_id === pid && e.ct_date === date);
+}
+
+export async function logEscalation4Hour(pid, date) {
+  const s = await load();
+  s.escalation_4hour_log = s.escalation_4hour_log || [];
+  if (!s.escalation_4hour_log.some(e => e.project_id === pid && e.ct_date === date)) {
+    s.escalation_4hour_log.push({ project_id: pid, ct_date: date });
+    await save(s);
+    return true;
+  }
+  return false;
 }
 
 // Escalation tracking for 48-hour reminder escalations
