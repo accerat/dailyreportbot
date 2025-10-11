@@ -48,7 +48,40 @@ async function missedTodayFlag(project, todayISO) {
   const lastText = lastISO || '—';
   const healthCell = (Number.isFinite(healthVal) ? `Health ${healthVal}/5` : 'Health —');
 
-  // stale if last report is not today
+  const statusKey = normalizeStatus(project.status);
+
+  // Never highlight "Upcoming" or "On Hold" projects as red
+  if (statusKey === 'started' || statusKey === 'on_hold') {
+    return { stale: false, lastText, healthVal, healthCell };
+  }
+
+  // For "Leaving & Incomplete" status, check if there's a recent report
+  if (statusKey === 'leaving_incomplete') {
+    // Find when the status was changed to leaving_incomplete
+    const statusChangeEvent = (ctx.trigger_events || [])
+      .filter(e => e.project_id === project.id && e.type === 'status:leaving_incomplete')
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+      .at(-1);
+
+    if (statusChangeEvent && statusChangeEvent.created_at) {
+      const changeTime = DateTime.fromISO(statusChangeEvent.created_at);
+      const twelveHoursBefore = changeTime.minus({ hours: 12 });
+
+      // Check if any report was submitted within 12 hours before OR any time after the status change
+      const hasRecentReport = (ctx.daily_reports || [])
+        .filter(r => r.project_id === project.id && r.created_at)
+        .some(r => {
+          const reportTime = DateTime.fromISO(r.created_at);
+          return reportTime >= twelveHoursBefore; // 12 hours before or any time after
+        });
+
+      if (hasRecentReport) {
+        return { stale: false, lastText, healthVal, healthCell };
+      }
+    }
+  }
+
+  // Default: stale if last report is not today
   const stale = !lastISO || lastISO !== todayISO;
 
   return {
