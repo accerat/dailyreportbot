@@ -16,13 +16,19 @@ export async function runReminderPass(onlyProjectId=null){
     if (__status !== STATUS.IN_PROGRESS && __status !== STATUS.STARTED) { continue; }
     attempts++;
 
+    // Check if this is the pre-arrival day (start date = today and no pre_arrival_confirmed)
+    const isPreArrivalDay = !p.pre_arrival_confirmed && p.start_date === today;
+
     // Send DM reminder to foreman
     try{
       const user=await global.client.users.fetch(p.foreman_user_id);
 
       // Row 1: Main action buttons
       const row1=new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`dr:open:${p.id}`).setLabel('Open Daily Report').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(isPreArrivalDay ? `arrival:confirm:${p.id}` : `dr:open:${p.id}`)
+          .setLabel(isPreArrivalDay ? 'Confirm Arrival' : 'Open Daily Report')
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`panel:status:${p.id}`).setLabel('Set Status').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`tmpl:set:${p.id}`).setLabel('Set Template').setStyle(ButtonStyle.Secondary)
       );
@@ -40,8 +46,12 @@ export async function runReminderPass(onlyProjectId=null){
         );
       }
 
+      const message = isPreArrivalDay
+        ? `🚀 Pre-Arrival Confirmation — **${p.name}**\nToday is your start date (${today}). Please confirm you're arriving tonight.`
+        : `⏰ Daily Report Reminder — **${p.name}**\nWe don't have today's report (CT ${today}).`;
+
       await user.send({
-        content:`⏰ Daily Report Reminder — **${p.name}**\nWe don't have today's report (CT ${today}).`,
+        content: message,
         components:[row1, row2]
       });
       await store.logReminder(p.id, today, hour);

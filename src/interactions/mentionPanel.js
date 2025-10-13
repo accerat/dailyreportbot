@@ -523,17 +523,23 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
         const allYes = isNextYes && arrivingYes && lodgingYes;
 
         const thread = await i.client.channels.fetch(project.thread_channel_id).catch(() => null);
+        const now = DateTime.now().setZone(TZ);
+        const tomorrow = now.plus({ days: 1 }).toISODate();
+
+        // Mark pre-arrival as confirmed and set daily reports to start tomorrow
+        await store.updateProjectFields(pid, {
+          pre_arrival_confirmed: true,
+          daily_reports_start_date: tomorrow
+        });
 
         if (allYes) {
-          // All confirmed - update status to In Progress
-          await store.updateProjectFields(pid, { status: STATUS.IN_PROGRESS });
-
+          // All confirmed - good to go
           const confirmEmbed = new EmbedBuilder()
             .setTitle('✅ Arrival Confirmed')
-            .setDescription(`All pre-arrival requirements confirmed by ${i.member?.displayName || i.user.username}. Project status updated to **In Progress**.`)
+            .setDescription(`All pre-arrival requirements confirmed by ${i.member?.displayName || i.user.username}. Daily reports will start tomorrow (${tomorrow}).`)
             .addFields(
               { name: 'Next Project', value: '✅ Yes', inline: true },
-              { name: 'Arriving Next Night', value: '✅ Yes', inline: true },
+              { name: 'Arriving Tonight', value: '✅ Yes', inline: true },
               { name: 'Lodging Booked', value: '✅ Yes', inline: true }
             )
             .setColor(0x27ae60)
@@ -541,20 +547,20 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
           if (thread) await thread.send({ embeds: [confirmEmbed] });
 
-          return i.reply({ content: 'Arrival confirmed! Project status updated to In Progress.', ephemeral: true });
+          return i.reply({ content: 'Arrival confirmed! Daily reports will start tomorrow.', ephemeral: true });
         } else {
-          // Some answers are "no" - flag and notify office
+          // Some answers are "no" - flag and notify office, but still confirmed
           const issues = [];
           if (!isNextYes) issues.push('❌ Not confirmed as next project');
-          if (!arrivingYes) issues.push('❌ Not arriving the next night');
+          if (!arrivingYes) issues.push('❌ Not arriving tonight');
           if (!lodgingYes) issues.push('❌ Lodging not booked');
 
           const issueEmbed = new EmbedBuilder()
             .setTitle('⚠️ Pre-Arrival Issues Detected')
-            .setDescription(`${i.member?.displayName || i.user.username} has reported issues with pre-arrival requirements.`)
+            .setDescription(`${i.member?.displayName || i.user.username} has reported issues with pre-arrival requirements. Daily reports will still start tomorrow (${tomorrow}).`)
             .addFields(
               { name: 'Next Project', value: isNextYes ? '✅ Yes' : '❌ No', inline: true },
-              { name: 'Arriving Next Night', value: arrivingYes ? '✅ Yes' : '❌ No', inline: true },
+              { name: 'Arriving Tonight', value: arrivingYes ? '✅ Yes' : '❌ No', inline: true },
               { name: 'Lodging Booked', value: lodgingYes ? '✅ Yes' : '❌ No', inline: true },
               ...(explanation ? [{ name: 'Explanation', value: explanation, inline: false }] : [])
             )
@@ -568,7 +574,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
           await store.updateProjectFields(pid, {
             arrival_issues: issues.join('; '),
             arrival_issues_explanation: explanation || null,
-            arrival_issues_date: DateTime.now().setZone(TZ).toISODate()
+            arrival_issues_date: now.toISODate()
           });
 
           // Send to thread
@@ -587,7 +593,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
             }
           }
 
-          return i.reply({ content: 'Pre-arrival issues reported. The office has been notified.', ephemeral: true });
+          return i.reply({ content: 'Pre-arrival confirmation submitted with issues. The office has been notified. Daily reports will start tomorrow.', ephemeral: true });
         }
       }
     }catch(e){

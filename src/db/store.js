@@ -69,6 +69,9 @@ export async function projectsNeedingReminder(ctHour, today) {
     if (p.reminder_active === false) return false;
     if (alreadyReminded(p.id, today, ctHour)) return false;
 
+    // If daily_reports_start_date is set and is in the future, don't send reminder yet
+    if (p.daily_reports_start_date && p.daily_reports_start_date > today) return false;
+
     // core rules
     const status = normStatus(p.status);
     const inProgress = status === 'in_progress';
