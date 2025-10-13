@@ -139,6 +139,11 @@ export async function getProjectById(id){
   return s.projects.find(p => p.id === id) || null;
 }
 
+export async function getAllProjects(){
+  const s = await load();
+  return s.projects || [];
+}
+
 export async function updateReportTriggers(reportId, triggers, authorUserId){
   const s = await load();
   const r = s.daily_reports.find(x => x.id === reportId);

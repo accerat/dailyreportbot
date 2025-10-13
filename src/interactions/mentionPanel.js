@@ -457,6 +457,139 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         } catch {}
 return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
       }
+
+      // Arrival confirmation button handler
+      if (i.isButton() && i.customId.startsWith('arrival:confirm:')){
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+
+        const modal = new ModalBuilder()
+          .setCustomId(`arrival:submit:${pid}`)
+          .setTitle(`Pre-Arrival Confirmation`);
+
+        const isNextProject = new TextInputBuilder()
+          .setCustomId('is_next_project')
+          .setLabel('Is this your next project? (yes/no)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('yes or no');
+
+        const arrivingNextNight = new TextInputBuilder()
+          .setCustomId('arriving_next_night')
+          .setLabel('Will you arrive the next night? (yes/no)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('yes or no');
+
+        const lodgingBooked = new TextInputBuilder()
+          .setCustomId('lodging_booked')
+          .setLabel('Have you booked lodging? (yes/no)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setPlaceholder('yes or no');
+
+        const explanation = new TextInputBuilder()
+          .setCustomId('explanation')
+          .setLabel('If any answer is "no", explain why:')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setPlaceholder('Leave blank if all answers are yes');
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(isNextProject),
+          new ActionRowBuilder().addComponents(arrivingNextNight),
+          new ActionRowBuilder().addComponents(lodgingBooked),
+          new ActionRowBuilder().addComponents(explanation)
+        );
+
+        return i.showModal(modal);
+      }
+
+      // Arrival confirmation modal submission handler
+      if (i.isModalSubmit() && i.customId.startsWith('arrival:submit:')){
+        const pid = Number(i.customId.split(':').pop());
+        const project = await store.getProjectById(pid);
+        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+
+        const isNextProject = (i.fields.getTextInputValue('is_next_project') || '').trim().toLowerCase();
+        const arrivingNextNight = (i.fields.getTextInputValue('arriving_next_night') || '').trim().toLowerCase();
+        const lodgingBooked = (i.fields.getTextInputValue('lodging_booked') || '').trim().toLowerCase();
+        const explanation = (i.fields.getTextInputValue('explanation') || '').trim();
+
+        const isNextYes = isNextProject.startsWith('y');
+        const arrivingYes = arrivingNextNight.startsWith('y');
+        const lodgingYes = lodgingBooked.startsWith('y');
+        const allYes = isNextYes && arrivingYes && lodgingYes;
+
+        const thread = await i.client.channels.fetch(project.thread_channel_id).catch(() => null);
+
+        if (allYes) {
+          // All confirmed - update status to In Progress
+          await store.updateProjectFields(pid, { status: STATUS.IN_PROGRESS });
+
+          const confirmEmbed = new EmbedBuilder()
+            .setTitle('✅ Arrival Confirmed')
+            .setDescription(`All pre-arrival requirements confirmed by ${i.member?.displayName || i.user.username}. Project status updated to **In Progress**.`)
+            .addFields(
+              { name: 'Next Project', value: '✅ Yes', inline: true },
+              { name: 'Arriving Next Night', value: '✅ Yes', inline: true },
+              { name: 'Lodging Booked', value: '✅ Yes', inline: true }
+            )
+            .setColor(0x27ae60)
+            .setTimestamp();
+
+          if (thread) await thread.send({ embeds: [confirmEmbed] });
+
+          return i.reply({ content: 'Arrival confirmed! Project status updated to In Progress.', ephemeral: true });
+        } else {
+          // Some answers are "no" - flag and notify office
+          const issues = [];
+          if (!isNextYes) issues.push('❌ Not confirmed as next project');
+          if (!arrivingYes) issues.push('❌ Not arriving the next night');
+          if (!lodgingYes) issues.push('❌ Lodging not booked');
+
+          const issueEmbed = new EmbedBuilder()
+            .setTitle('⚠️ Pre-Arrival Issues Detected')
+            .setDescription(`${i.member?.displayName || i.user.username} has reported issues with pre-arrival requirements.`)
+            .addFields(
+              { name: 'Next Project', value: isNextYes ? '✅ Yes' : '❌ No', inline: true },
+              { name: 'Arriving Next Night', value: arrivingYes ? '✅ Yes' : '❌ No', inline: true },
+              { name: 'Lodging Booked', value: lodgingYes ? '✅ Yes' : '❌ No', inline: true },
+              ...(explanation ? [{ name: 'Explanation', value: explanation, inline: false }] : [])
+            )
+            .setColor(0xe74c3c)
+            .setTimestamp();
+
+          // Log the event
+          await store.logEvent({ project_id: pid, type: 'arrival_issues', author_user_id: i.user.id });
+
+          // Store the issues in the project
+          await store.updateProjectFields(pid, {
+            arrival_issues: issues.join('; '),
+            arrival_issues_explanation: explanation || null,
+            arrival_issues_date: DateTime.now().setZone(TZ).toISODate()
+          });
+
+          // Send to thread
+          if (thread) await thread.send({ embeds: [issueEmbed] });
+
+          // Notify MLB Office role
+          const officeRoleId = process.env.MLB_OFFICE_ROLE_ID;
+          if (officeRoleId && thread) {
+            try {
+              await thread.send({
+                content: `<@&${officeRoleId}> Pre-arrival issues detected for **${project.name}**. Please review and take action.`,
+                allowedMentions: { parse: ['roles'] }
+              });
+            } catch (e) {
+              console.error('Failed to notify office role:', e);
+            }
+          }
+
+          return i.reply({ content: 'Pre-arrival issues reported. The office has been notified.', ephemeral: true });
+        }
+      }
     }catch(e){
       console.error('Interaction handler error:', e);
       if (!i.deferred && !i.replied){
