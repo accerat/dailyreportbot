@@ -524,19 +524,22 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
         const thread = await i.client.channels.fetch(project.thread_channel_id).catch(() => null);
         const now = DateTime.now().setZone(TZ);
-        const tomorrow = now.plus({ days: 1 }).toISODate();
+
+        // Daily reports start 24 hours after the start date (not when they respond)
+        const startDate = DateTime.fromISO(project.start_date, { zone: TZ });
+        const dailyReportsStart = startDate.plus({ days: 1 }).toISODate();
 
         // Mark pre-arrival as confirmed and set daily reports to start tomorrow
         await store.updateProjectFields(pid, {
           pre_arrival_confirmed: true,
-          daily_reports_start_date: tomorrow
+          daily_reports_start_date: dailyReportsStart
         });
 
         if (allYes) {
           // All confirmed - good to go
           const confirmEmbed = new EmbedBuilder()
             .setTitle('✅ Arrival Confirmed')
-            .setDescription(`All pre-arrival requirements confirmed by ${i.member?.displayName || i.user.username}. Daily reports will start tomorrow (${tomorrow}).`)
+            .setDescription(`All pre-arrival requirements confirmed by ${i.member?.displayName || i.user.username}. Daily reports will start on ${dailyReportsStart}.`)
             .addFields(
               { name: 'Next Project', value: '✅ Yes', inline: true },
               { name: 'Arriving Tonight', value: '✅ Yes', inline: true },
@@ -547,7 +550,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
           if (thread) await thread.send({ embeds: [confirmEmbed] });
 
-          return i.reply({ content: 'Arrival confirmed! Daily reports will start tomorrow.', ephemeral: true });
+          return i.reply({ content: `Arrival confirmed! Daily reports will start on ${dailyReportsStart}.`, ephemeral: true });
         } else {
           // Some answers are "no" - flag and notify office, but still confirmed
           const issues = [];
@@ -557,7 +560,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
           const issueEmbed = new EmbedBuilder()
             .setTitle('⚠️ Pre-Arrival Issues Detected')
-            .setDescription(`${i.member?.displayName || i.user.username} has reported issues with pre-arrival requirements. Daily reports will still start tomorrow (${tomorrow}).`)
+            .setDescription(`${i.member?.displayName || i.user.username} has reported issues with pre-arrival requirements. Daily reports will still start on ${dailyReportsStart}.`)
             .addFields(
               { name: 'Next Project', value: isNextYes ? '✅ Yes' : '❌ No', inline: true },
               { name: 'Arriving Tonight', value: arrivingYes ? '✅ Yes' : '❌ No', inline: true },
@@ -593,7 +596,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
             }
           }
 
-          return i.reply({ content: 'Pre-arrival confirmation submitted with issues. The office has been notified. Daily reports will start tomorrow.', ephemeral: true });
+          return i.reply({ content: `Pre-arrival confirmation submitted with issues. The office has been notified. Daily reports will start on ${dailyReportsStart}.`, ephemeral: true });
         }
       }
     }catch(e){
