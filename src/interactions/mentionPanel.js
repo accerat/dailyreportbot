@@ -444,22 +444,17 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         // Clockify integration - sync project and manage archive status
         if (isClockifyConfigured()) {
           try {
+            const clockifyMessages = [];
+
             // Create/sync Clockify project if it doesn't exist
             if (!project.clockify_project_id) {
               const { projectId, isDuplicate } = await syncProjectToClockify(project);
               await store.updateProjectFields(pid, { clockify_project_id: projectId });
 
-              // Notify if duplicate detected
               if (isDuplicate) {
-                const officeRoleId = process.env.MLB_OFFICE_ROLE_ID;
-                if (officeRoleId && channel) {
-                  try {
-                    await channel.send({
-                      content: `<@&${officeRoleId}> **Clockify Duplicate Warning**\n\nA project with the name "${project.name}" already exists in Clockify. A new project was created anyway, but you may want to review this.`,
-                      allowedMentions: { parse: ['roles'] }
-                    });
-                  } catch {}
-                }
+                clockifyMessages.push(`📎 Clockify: Linked to existing project "${project.name}"`);
+              } else {
+                clockifyMessages.push(`✅ Clockify: Created new project "${project.name}"`);
               }
             }
 
@@ -468,11 +463,25 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
               if (status === STATUS.COMPLETE_NO_GOBACKS) {
                 // Archive when complete
                 await archiveClockifyProject(project.clockify_project_id);
+                clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
                 console.log(`[clockify] Archived project ${project.clockify_project_id} for ${project.name}`);
               } else if (oldStatus === STATUS.COMPLETE_NO_GOBACKS && status !== STATUS.COMPLETE_NO_GOBACKS) {
                 // Unarchive when reopening from complete
                 await unarchiveClockifyProject(project.clockify_project_id);
+                clockifyMessages.push(`📂 Clockify: Unarchived project (status: ${STATUS_LABEL[status] || status})`);
                 console.log(`[clockify] Unarchived project ${project.clockify_project_id} for ${project.name}`);
+              }
+            }
+
+            // Send all Clockify update messages to the channel
+            if (clockifyMessages.length > 0 && channel) {
+              try {
+                await channel.send({
+                  content: clockifyMessages.join('\n'),
+                  allowedMentions: { parse: [] }
+                });
+              } catch (e) {
+                console.error('[clockify] Failed to send status messages:', e);
               }
             }
           } catch (error) {
