@@ -202,7 +202,7 @@ export async function findProjectByName(projectName) {
 
 /**
  * Sync a Discord project to Clockify
- * - Creates project if it doesn't exist
+ * - Creates project if it doesn't exist, or links to existing project
  * - Returns the Clockify project ID and duplicate warning
  * @param {object} discordProject - Discord project object from store
  * @returns {Promise<{projectId: string, isDuplicate: boolean}>} Clockify project ID and duplicate flag
@@ -217,10 +217,10 @@ export async function syncProjectToClockify(discordProject) {
 
     // Check for duplicate name
     const existingProject = await findProjectByName(discordProject.name);
-    const isDuplicate = existingProject !== null;
 
-    if (isDuplicate) {
-      console.warn(`[clockify] Warning: Project with name "${discordProject.name}" already exists in Clockify (${existingProject.id})`);
+    if (existingProject) {
+      console.log(`[clockify] Found existing project with name "${discordProject.name}" (${existingProject.id}), linking to it instead of creating new one`);
+      return { projectId: existingProject.id, isDuplicate: true };
     }
 
     // Create new project in Clockify
@@ -230,7 +230,7 @@ export async function syncProjectToClockify(discordProject) {
       color: '#2196F3',
     });
 
-    return { projectId: clockifyProject.id, isDuplicate };
+    return { projectId: clockifyProject.id, isDuplicate: false };
   } catch (error) {
     console.error('[clockify] Error syncing project:', error);
     throw error;
