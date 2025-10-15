@@ -18,6 +18,7 @@ import * as templates from '../db/templates.js';
 import { postWeatherHazardsIfNeeded } from '../services/weather.js';
 import { maybePingOnReport } from '../services/pings.js';
 import { STATUS, STATUS_LABEL, normalizeStatus } from '../constants/status.js';
+import { syncProjectToClockify, archiveClockifyProject, unarchiveClockifyProject, isClockifyConfigured } from '../services/clockify.js';
 
 const TZ = process.env.TIMEZONE || 'America/Chicago'; // default to CT per your org
 
@@ -433,9 +434,65 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
       if (i.isStringSelectMenu() && i.customId.startsWith('status:set:')){
         const pid = Number(i.customId.split(':').pop());
         const status = i.values[0];
+        const oldProject = await store.getProjectById(pid);
+        const oldStatus = oldProject?.status;
+
         await store.updateProjectFields(pid, { status });
         const project = await store.getProjectById(pid);
         const channel = await i.client.channels.fetch(project.thread_channel_id);
+
+        // Clockify integration - sync project and manage archive status
+        if (isClockifyConfigured()) {
+          try {
+            // Create/sync Clockify project if it doesn't exist
+            if (!project.clockify_project_id) {
+              const { projectId, isDuplicate } = await syncProjectToClockify(project);
+              await store.updateProjectFields(pid, { clockify_project_id: projectId });
+
+              // Notify if duplicate detected
+              if (isDuplicate) {
+                const officeRoleId = process.env.MLB_OFFICE_ROLE_ID;
+                if (officeRoleId && channel) {
+                  try {
+                    await channel.send({
+                      content: `<@&${officeRoleId}> **Clockify Duplicate Warning**\n\nA project with the name "${project.name}" already exists in Clockify. A new project was created anyway, but you may want to review this.`,
+                      allowedMentions: { parse: ['roles'] }
+                    });
+                  } catch {}
+                }
+              }
+            }
+
+            // Handle archive/unarchive based on status
+            if (project.clockify_project_id) {
+              if (status === STATUS.COMPLETE_NO_GOBACKS) {
+                // Archive when complete
+                await archiveClockifyProject(project.clockify_project_id);
+                console.log(`[clockify] Archived project ${project.clockify_project_id} for ${project.name}`);
+              } else if (oldStatus === STATUS.COMPLETE_NO_GOBACKS && status !== STATUS.COMPLETE_NO_GOBACKS) {
+                // Unarchive when reopening from complete
+                await unarchiveClockifyProject(project.clockify_project_id);
+                console.log(`[clockify] Unarchived project ${project.clockify_project_id} for ${project.name}`);
+              }
+            }
+          } catch (error) {
+            console.error('[clockify] Error syncing project on status change:', error);
+
+            // Notify MLB Office about the error
+            const officeRoleId = process.env.MLB_OFFICE_ROLE_ID;
+            if (officeRoleId && channel) {
+              try {
+                await channel.send({
+                  content: `<@&${officeRoleId}> **Clockify Sync Error**\n\nFailed to sync project "${project.name}" to Clockify.\n\nError: ${error.message || 'Unknown error'}`,
+                  allowedMentions: { parse: ['roles'] }
+                });
+              } catch (notifyError) {
+                console.error('[clockify] Failed to send error notification:', notifyError);
+              }
+            }
+          }
+        }
+
         await maybePingOnReport({
           channel,
           statusChangedTo: status,
@@ -445,7 +502,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             LODGING_ROLE_ID: process.env.LODGING_ROLE_ID,
           }
         }).catch(()=>{});
-        
+
         // Log specific transitions and post executive summary on completion
         try {
           if (status === STATUS.LEAVING_INCOMPLETE && typeof store.logEvent === 'function') {

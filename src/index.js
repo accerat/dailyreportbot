@@ -18,6 +18,7 @@ import './jobs/reminders.js';
 import './jobs/noonSummary.js';
 import './jobs/midnightMissed.js';
 import { startAutoStartJob } from './jobs/autoStart.js';
+import { validateClockifyConfig } from './startup-guards.js';
 
 // Admin command modules
 import * as adminSummary from './commands/adminSummaryNow.js';
@@ -25,6 +26,7 @@ import * as adminReminders from './commands/adminRemindersNow.js';
 import * as adminBackfill from './commands/adminBackfillMissed.js';
 import * as adminSetForums from './commands/adminSetForums.js';
 import * as adminSetProjectCategory from './commands/adminSetProjectCategory.js';
+import * as adminClockifyManualSync from './commands/adminClockifyManualSync.js';
 
 export const client = new Client({
   intents: [
@@ -39,8 +41,11 @@ export const client = new Client({
 });
 global.client = client;
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`[ready] logged in as ${c.user.tag}`);
+
+  // Validate Clockify configuration
+  await validateClockifyConfig(c);
 });
 
 // Slash-command dispatcher
@@ -50,6 +55,7 @@ const commandMap = new Map([
   [adminBackfill.data.name, adminBackfill],
   [adminSetForums.data.name, adminSetForums],
   [adminSetProjectCategory.data.name, adminSetProjectCategory],
+  [adminClockifyManualSync.data.name, adminClockifyManualSync],
 ]);
 
 client.on(Events.InteractionCreate, async (interaction) => {
