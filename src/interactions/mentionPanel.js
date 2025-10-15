@@ -484,6 +484,9 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
                     // Clear the invalid project ID
                     await store.updateProjectFields(pid, { clockify_project_id: null });
 
+                    // Update the in-memory project object so syncProjectToClockify doesn't see the old ID
+                    project.clockify_project_id = null;
+
                     // Re-sync to create a new project in the correct workspace
                     const { projectId, isDuplicate } = await syncProjectToClockify(project);
                     await store.updateProjectFields(pid, { clockify_project_id: projectId });

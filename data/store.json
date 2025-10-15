@@ -11,7 +11,9 @@
       "track_in_summary": true,
       "type": "uhc",
       "id": 1,
-      "completion_date": "2025-12-08"
+      "completion_date": "2025-12-08",
+      "status": "in_progress",
+      "clockify_project_id": "68ef2cda9aa13c559009efcd"
     },
     {
       "name": "test channel",
@@ -305,6 +307,11 @@
       "project_id": 1,
       "ct_date": "2025-08-23",
       "ct_hour": 14
+    },
+    {
+      "project_id": 1,
+      "ct_date": "2025-10-15",
+      "ct_hour": 13
     }
   ],
   "missed_reports": [
@@ -343,6 +350,46 @@
     {
       "project_id": 9,
       "ct_date": "2025-10-04"
+    },
+    {
+      "project_id": 1,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 2,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 3,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 4,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 5,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 6,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 7,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 8,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 9,
+      "ct_date": "2025-10-14"
+    },
+    {
+      "project_id": 10,
+      "ct_date": "2025-10-14"
     }
   ],
   "settings": {
