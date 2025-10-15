@@ -480,19 +480,28 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
                 if (archiveError.message && archiveError.message.includes('doesn\'t belong to Workspace')) {
                   console.error(`[clockify] Workspace mismatch for project ${project.clockify_project_id}, clearing and resyncing...`);
 
-                  // Clear the invalid project ID
-                  await store.updateProjectFields(pid, { clockify_project_id: null });
+                  try {
+                    // Clear the invalid project ID
+                    await store.updateProjectFields(pid, { clockify_project_id: null });
 
-                  // Re-sync to create a new project in the correct workspace
-                  const { projectId, isDuplicate } = await syncProjectToClockify(project);
-                  await store.updateProjectFields(pid, { clockify_project_id: projectId });
+                    // Re-sync to create a new project in the correct workspace
+                    const { projectId, isDuplicate } = await syncProjectToClockify(project);
+                    await store.updateProjectFields(pid, { clockify_project_id: projectId });
 
-                  clockifyMessages.push(`🔄 Clockify: Workspace mismatch detected - resynced project "${project.name}"`);
+                    clockifyMessages.push(`🔄 Clockify: Workspace mismatch detected - resynced project "${project.name}"`);
 
-                  // Retry the archive/unarchive operation with the new project ID
-                  if (status === STATUS.COMPLETE_NO_GOBACKS) {
-                    await archiveClockifyProject(projectId);
-                    clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
+                    // Retry the archive/unarchive operation with the new project ID
+                    if (status === STATUS.COMPLETE_NO_GOBACKS) {
+                      await archiveClockifyProject(projectId);
+                      clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
+                    }
+
+                    // Recovery succeeded - don't re-throw the error
+                    console.log(`[clockify] Successfully recovered from workspace mismatch for ${project.name}`);
+                  } catch (recoveryError) {
+                    console.error('[clockify] Recovery failed:', recoveryError);
+                    // Re-throw the recovery error so outer catch can handle it
+                    throw recoveryError;
                   }
                 } else {
                   // Re-throw other errors
