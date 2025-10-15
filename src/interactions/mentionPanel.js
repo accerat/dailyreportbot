@@ -456,20 +456,48 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
               } else {
                 clockifyMessages.push(`✅ Clockify: Created new project "${project.name}"`);
               }
+
+              // Re-fetch project to get the updated clockify_project_id
+              project = await store.getProjectById(pid);
             }
 
             // Handle archive/unarchive based on status
             if (project.clockify_project_id) {
-              if (status === STATUS.COMPLETE_NO_GOBACKS) {
-                // Archive when complete
-                await archiveClockifyProject(project.clockify_project_id);
-                clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
-                console.log(`[clockify] Archived project ${project.clockify_project_id} for ${project.name}`);
-              } else if (oldStatus === STATUS.COMPLETE_NO_GOBACKS && status !== STATUS.COMPLETE_NO_GOBACKS) {
-                // Unarchive when reopening from complete
-                await unarchiveClockifyProject(project.clockify_project_id);
-                clockifyMessages.push(`📂 Clockify: Unarchived project (status: ${STATUS_LABEL[status] || status})`);
-                console.log(`[clockify] Unarchived project ${project.clockify_project_id} for ${project.name}`);
+              try {
+                if (status === STATUS.COMPLETE_NO_GOBACKS) {
+                  // Archive when complete
+                  await archiveClockifyProject(project.clockify_project_id);
+                  clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
+                  console.log(`[clockify] Archived project ${project.clockify_project_id} for ${project.name}`);
+                } else if (oldStatus === STATUS.COMPLETE_NO_GOBACKS && status !== STATUS.COMPLETE_NO_GOBACKS) {
+                  // Unarchive when reopening from complete
+                  await unarchiveClockifyProject(project.clockify_project_id);
+                  clockifyMessages.push(`📂 Clockify: Unarchived project (status: ${STATUS_LABEL[status] || status})`);
+                  console.log(`[clockify] Unarchived project ${project.clockify_project_id} for ${project.name}`);
+                }
+              } catch (archiveError) {
+                // Handle workspace mismatch error - the stored project ID belongs to a different workspace
+                if (archiveError.message && archiveError.message.includes('doesn\'t belong to Workspace')) {
+                  console.error(`[clockify] Workspace mismatch for project ${project.clockify_project_id}, clearing and resyncing...`);
+
+                  // Clear the invalid project ID
+                  await store.updateProjectFields(pid, { clockify_project_id: null });
+
+                  // Re-sync to create a new project in the correct workspace
+                  const { projectId, isDuplicate } = await syncProjectToClockify(project);
+                  await store.updateProjectFields(pid, { clockify_project_id: projectId });
+
+                  clockifyMessages.push(`🔄 Clockify: Workspace mismatch detected - resynced project "${project.name}"`);
+
+                  // Retry the archive/unarchive operation with the new project ID
+                  if (status === STATUS.COMPLETE_NO_GOBACKS) {
+                    await archiveClockifyProject(projectId);
+                    clockifyMessages.push(`📦 Clockify: Archived project (status: complete)`);
+                  }
+                } else {
+                  // Re-throw other errors
+                  throw archiveError;
+                }
               }
             }
 
