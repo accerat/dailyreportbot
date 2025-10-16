@@ -63,6 +63,17 @@ export async function projectsNeedingReminder(ctHour, today) {
   function alreadyReminded(pid, d, h){
     return (s.reminder_log || []).some(l => l.project_id === pid && l.ct_date === d && l.ct_hour === h);
   }
+  function getReminderHour(p){
+    // Check for reminder_time (format: "19:00") or reminder_start_ct (format: "08:00")
+    const timeStr = p.reminder_time || p.reminder_start_ct;
+    if (!timeStr) return null;
+
+    // Parse hour from "HH:MM" format
+    const match = String(timeStr).match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+
+    return parseInt(match[1], 10);
+  }
 
   return (s.projects || []).filter(p => {
     if (p.paused) return false;
@@ -71,6 +82,10 @@ export async function projectsNeedingReminder(ctHour, today) {
 
     // If daily_reports_start_date is set and is in the future, don't send reminder yet
     if (p.daily_reports_start_date && p.daily_reports_start_date > today) return false;
+
+    // Check if this hour matches the project's configured reminder time
+    const reminderHour = getReminderHour(p);
+    if (reminderHour !== null && reminderHour !== ctHour) return false;
 
     // core rules
     const status = normStatus(p.status);
