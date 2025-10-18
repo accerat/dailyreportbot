@@ -37,7 +37,7 @@ async function getDriveClient() {
  * @param {string} fileKey - 'store' or 'templates'
  * @param {string} filePath - Local file path
  */
-export async function backupToD rive(fileKey, filePath) {
+export async function backupToDrive(fileKey, filePath) {
   try {
     const drive = await getDriveClient();
     if (!drive) return; // Skip if not configured
