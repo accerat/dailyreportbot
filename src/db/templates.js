@@ -1,6 +1,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { backupTemplates } from '../utils/driveBackup.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -22,6 +24,8 @@ async function load(){
 async function save(data){
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(FILE, JSON.stringify(data, null, 2), 'utf8');
+  // Auto-backup to Google Drive
+  backupTemplates().catch(e => console.error('[templates] Backup failed:', e.message));
 }
 
 export async function getTemplateForProject(projectId){

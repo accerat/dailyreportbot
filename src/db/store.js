@@ -2,6 +2,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { backupStore } from '../utils/driveBackup.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_FILE = join(__dirname, '../../data/store.json');
@@ -29,7 +31,12 @@ const defaultState = {
 
 async function ensureFile(){ try{ await mkdir(dirname(DATA_FILE),{recursive:true}); await readFile(DATA_FILE,'utf-8'); }catch{ await writeFile(DATA_FILE, JSON.stringify(defaultState,null,2)); } }
 export async function load(){ await ensureFile(); return JSON.parse(await readFile(DATA_FILE,'utf-8')); }
-export async function save(s){ await writeFile(DATA_FILE, JSON.stringify(s,null,2)); return s; }
+export async function save(s){
+  await writeFile(DATA_FILE, JSON.stringify(s,null,2));
+  // Auto-backup to Google Drive
+  backupStore().catch(e => console.error('[store] Backup failed:', e.message));
+  return s;
+}
 
 
 export async function updateProjectFields(id, fields){
