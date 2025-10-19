@@ -282,33 +282,34 @@ export async function processTravelTagging(startDate, endDate) {
 export async function processLastWeek() {
   const now = new Date();
 
-  // Calculate last Saturday (most recent Saturday before today, or 7 days ago if today is Saturday)
+  // Calculate the PREVIOUS COMPLETE Saturday-Friday week
+  // "Last week" means the most recent completed week, not the current week
   const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  let daysToLastSaturday;
+  let daysToLastFriday;
 
   if (dayOfWeek === 6) {
-    // Today is Saturday, go back 7 days to last Saturday
-    daysToLastSaturday = 7;
+    // Today is Saturday - last Friday was yesterday
+    daysToLastFriday = 1;
   } else if (dayOfWeek === 0) {
-    // Today is Sunday, go back 1 day to Saturday
-    daysToLastSaturday = 1;
+    // Today is Sunday - last Friday was 2 days ago
+    daysToLastFriday = 2;
   } else {
     // Monday (1) through Friday (5)
-    // Go back to the previous Saturday
-    daysToLastSaturday = dayOfWeek + 1;
+    // Last Friday was (dayOfWeek + 2) days ago
+    daysToLastFriday = dayOfWeek + 2;
   }
 
-  const lastSaturday = new Date(now);
-  lastSaturday.setDate(now.getDate() - daysToLastSaturday);
-  lastSaturday.setHours(0, 0, 0, 0);
-
-  // Calculate last Friday (6 days after last Saturday)
-  const lastFriday = new Date(lastSaturday);
-  lastFriday.setDate(lastSaturday.getDate() + 6);
+  const lastFriday = new Date(now);
+  lastFriday.setDate(now.getDate() - daysToLastFriday);
   lastFriday.setHours(23, 59, 59, 999);
 
+  // Last Saturday is 6 days before last Friday
+  const lastSaturday = new Date(lastFriday);
+  lastSaturday.setDate(lastFriday.getDate() - 6);
+  lastSaturday.setHours(0, 0, 0, 0);
+
   console.log(`[travel-tagger] Today is ${now.toDateString()} (day ${dayOfWeek})`);
-  console.log(`[travel-tagger] Processing week: ${lastSaturday.toISOString()} to ${lastFriday.toISOString()}`);
+  console.log(`[travel-tagger] Processing last week: ${lastSaturday.toISOString()} to ${lastFriday.toISOString()}`);
 
   return processTravelTagging(lastSaturday, lastFriday);
 }
