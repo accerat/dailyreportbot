@@ -83,12 +83,21 @@ async function createTag(tagName) {
 /**
  * Update a time entry with tags
  */
-async function updateTimeEntryTags(timeEntryId, tagIds) {
+async function updateTimeEntryTags(userId, timeEntryId, tagIds, existingEntry) {
+  // Clockify requires PATCH with all required fields preserved
   return clockifyRequest(
-    `/workspaces/${CLOCKIFY_WORKSPACE_ID}/time-entries/${timeEntryId}`,
+    `/workspaces/${CLOCKIFY_WORKSPACE_ID}/user/${userId}/time-entries/${timeEntryId}`,
     {
-      method: 'PUT',
-      body: JSON.stringify({ tagIds }),
+      method: 'PATCH',
+      body: JSON.stringify({
+        start: existingEntry.timeInterval.start,
+        end: existingEntry.timeInterval.end,
+        billable: existingEntry.billable || false,
+        description: existingEntry.description || '',
+        projectId: existingEntry.projectId,
+        taskId: existingEntry.taskId || null,
+        tagIds: tagIds,
+      }),
     }
   );
 }
@@ -206,7 +215,7 @@ export async function processTravelTagging(startDate, endDate) {
 
           if (isTravelProject(projectName)) {
             summary.travelEntriesFound++;
-            console.log(`[travel-tagger] Found travel entry for ${user.name}: ${projectName}`);
+            console.log(`[travel-tagger] Found travel entry for ${user.name}: ${projectName} (ID: ${entry.id})`);
 
             // Find which project to tag with
             const tagProjectName = findProjectToTag(timeEntries, i, projectsMap);
@@ -228,7 +237,7 @@ export async function processTravelTagging(startDate, endDate) {
               // Update time entry with tag (preserve existing tags)
               const existingTagIds = entry.tagIds || [];
               if (!existingTagIds.includes(tagId)) {
-                await updateTimeEntryTags(entry.id, [...existingTagIds, tagId]);
+                await updateTimeEntryTags(user.id, entry.id, [...existingTagIds, tagId], entry);
                 summary.travelEntriesTagged++;
                 console.log(`[travel-tagger] Successfully tagged travel entry for ${user.name}`);
               } else {
