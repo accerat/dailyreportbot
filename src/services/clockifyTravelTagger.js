@@ -198,8 +198,14 @@ export async function processTravelTagging(startDate, endDate) {
       try {
         console.log(`[travel-tagger] Processing user: ${user.name} (${user.id})`);
 
-        // Get all time entries for this user in the date range
-        const timeEntries = await getUserTimeEntries(user.id, startDate, endDate);
+        // Get all time entries for this user in an EXPANDED date range
+        // We need to look beyond the target range to find previous/next projects
+        const expandedStartDate = new Date(startDate);
+        expandedStartDate.setDate(expandedStartDate.getDate() - 30); // 30 days before
+        const expandedEndDate = new Date(endDate);
+        expandedEndDate.setDate(expandedEndDate.getDate() + 30); // 30 days after
+
+        const timeEntries = await getUserTimeEntries(user.id, expandedStartDate, expandedEndDate);
 
         // Sort by start time
         timeEntries.sort((a, b) =>
@@ -208,17 +214,21 @@ export async function processTravelTagging(startDate, endDate) {
 
         console.log(`[travel-tagger] Found ${timeEntries.length} time entries for ${user.name}`);
 
-        // Find all travel entries
+        // Find all travel entries (but only tag entries within the original date range)
         for (let i = 0; i < timeEntries.length; i++) {
           const entry = timeEntries[i];
+          const entryStartTime = new Date(entry.timeInterval.start);
           const projectName = projectsMap[entry.projectId];
 
-          if (isTravelProject(projectName)) {
+          // Only process travel entries that fall within the original target date range
+          if (isTravelProject(projectName) && entryStartTime >= startDate && entryStartTime <= endDate) {
             summary.travelEntriesFound++;
             console.log(`[travel-tagger] Found travel entry for ${user.name}: ${projectName} (ID: ${entry.id})`);
 
             // Find which project to tag with
             const tagProjectName = findProjectToTag(timeEntries, i, projectsMap);
+
+            console.log(`[travel-tagger] DEBUG: User ${user.name} has ${timeEntries.length} total entries, travel entry at index ${i}`);
 
             if (tagProjectName) {
               console.log(`[travel-tagger] Tagging travel entry with: ${tagProjectName}`);
