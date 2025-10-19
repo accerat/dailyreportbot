@@ -43,10 +43,12 @@ async function clockifyRequest(endpoint, options = {}) {
 }
 
 /**
- * Get all users in the workspace
+ * Get all active users in the workspace
  */
 async function getWorkspaceUsers() {
-  return clockifyRequest(`/workspaces/${CLOCKIFY_WORKSPACE_ID}/users`);
+  const allUsers = await clockifyRequest(`/workspaces/${CLOCKIFY_WORKSPACE_ID}/users`);
+  // Filter for only active users (not deactivated)
+  return allUsers.filter(user => user.status === 'ACTIVE');
 }
 
 /**
@@ -181,9 +183,9 @@ export async function processTravelTagging(startDate, endDate) {
       tagsByName[tag.name.toLowerCase()] = tag.id;
     });
 
-    // Get all users
+    // Get all active users
     const users = await getWorkspaceUsers();
-    console.log(`[travel-tagger] Found ${users.length} users`);
+    console.log(`[travel-tagger] Found ${users.length} active users`);
 
     const summary = {
       usersProcessed: 0,
@@ -280,9 +282,21 @@ export async function processTravelTagging(startDate, endDate) {
 export async function processLastWeek() {
   const now = new Date();
 
-  // Calculate last Saturday
+  // Calculate last Saturday (most recent Saturday before today, or 7 days ago if today is Saturday)
   const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const daysToLastSaturday = dayOfWeek === 6 ? 7 : (dayOfWeek + 1); // Days back to last Saturday
+  let daysToLastSaturday;
+
+  if (dayOfWeek === 6) {
+    // Today is Saturday, go back 7 days to last Saturday
+    daysToLastSaturday = 7;
+  } else if (dayOfWeek === 0) {
+    // Today is Sunday, go back 1 day to Saturday
+    daysToLastSaturday = 1;
+  } else {
+    // Monday (1) through Friday (5)
+    // Go back to the previous Saturday
+    daysToLastSaturday = dayOfWeek + 1;
+  }
 
   const lastSaturday = new Date(now);
   lastSaturday.setDate(now.getDate() - daysToLastSaturday);
@@ -293,6 +307,7 @@ export async function processLastWeek() {
   lastFriday.setDate(lastSaturday.getDate() + 6);
   lastFriday.setHours(23, 59, 59, 999);
 
+  console.log(`[travel-tagger] Today is ${now.toDateString()} (day ${dayOfWeek})`);
   console.log(`[travel-tagger] Processing week: ${lastSaturday.toISOString()} to ${lastFriday.toISOString()}`);
 
   return processTravelTagging(lastSaturday, lastFriday);
