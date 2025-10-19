@@ -167,12 +167,20 @@ export async function processTravelTagging(startDate, endDate) {
     // Get all projects to build project ID -> project info map
     const projects = await getProjects();
     const projectsMap = {};
+    const travelProjects = [];
     projects.forEach(p => {
       projectsMap[p.id] = {
         name: p.name,
         clientName: p.clientName || null
       };
+      // Track projects with "travel" in name for debugging
+      if (p.name.toLowerCase().includes('travel')) {
+        travelProjects.push({ name: p.name, client: p.clientName });
+      }
     });
+
+    console.log(`[travel-tagger] Found ${travelProjects.length} projects with 'travel' in name:`,
+      travelProjects.map(p => `"${p.name}" (client: ${p.client || 'NONE'})`).join(', '));
 
     // Get all existing tags
     const existingTags = await getWorkspaceTags();
