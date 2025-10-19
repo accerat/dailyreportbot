@@ -5,13 +5,8 @@ const CLOCKIFY_API_KEY = process.env.CLOCKIFY_API_KEY;
 const CLOCKIFY_WORKSPACE_ID = process.env.CLOCKIFY_WORKSPACE_ID;
 const CLOCKIFY_API_BASE = 'https://api.clockify.me/api/v1';
 
-// Travel project names (case-insensitive matching)
-const TRAVEL_PROJECT_NAMES = [
-  'travel',
-  'car owner only - travel',
-  'car owner only- travel',
-  'car owner only -travel',
-];
+// Travel client name (case-insensitive matching)
+const TRAVEL_CLIENT_NAME = 'travel';
 
 /**
  * Make a request to the Clockify API
@@ -112,19 +107,19 @@ async function getProjects() {
 }
 
 /**
- * Check if a project is a travel project
+ * Check if a project is a travel project by client name
  */
-function isTravelProject(projectName) {
-  if (!projectName) return false;
-  const normalized = projectName.toLowerCase().trim();
-  return TRAVEL_PROJECT_NAMES.some(travel => normalized.includes(travel.toLowerCase()));
+function isTravelProject(projectInfo) {
+  if (!projectInfo || !projectInfo.clientName) return false;
+  const normalized = projectInfo.clientName.toLowerCase().trim();
+  return normalized === TRAVEL_CLIENT_NAME.toLowerCase();
 }
 
 /**
  * Find the next or previous project for a travel entry
  * @param {Array} allEntries - All time entries for the user, sorted by start time
  * @param {number} travelEntryIndex - Index of the travel entry
- * @param {object} projectsMap - Map of project IDs to project names
+ * @param {object} projectsMap - Map of project IDs to project info
  * @returns {string|null} - Project name to tag with, or null
  */
 function findProjectToTag(allEntries, travelEntryIndex, projectsMap) {
@@ -140,19 +135,19 @@ function findProjectToTag(allEntries, travelEntryIndex, projectsMap) {
     // Stop if we're past 2 days
     if (entryStartTime > twoDaysLater) break;
 
-    const projectName = projectsMap[entry.projectId];
-    if (projectName && !isTravelProject(projectName)) {
-      return projectName;
+    const projectInfo = projectsMap[entry.projectId];
+    if (projectInfo && !isTravelProject(projectInfo)) {
+      return projectInfo.name;
     }
   }
 
   // No next project found, look backward for previous non-travel project
   for (let i = travelEntryIndex - 1; i >= 0; i--) {
     const entry = allEntries[i];
-    const projectName = projectsMap[entry.projectId];
+    const projectInfo = projectsMap[entry.projectId];
 
-    if (projectName && !isTravelProject(projectName)) {
-      return projectName;
+    if (projectInfo && !isTravelProject(projectInfo)) {
+      return projectInfo.name;
     }
   }
 
@@ -169,11 +164,14 @@ export async function processTravelTagging(startDate, endDate) {
   console.log(`[travel-tagger] Processing travel entries from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
   try {
-    // Get all projects to build project ID -> name map
+    // Get all projects to build project ID -> project info map
     const projects = await getProjects();
     const projectsMap = {};
     projects.forEach(p => {
-      projectsMap[p.id] = p.name;
+      projectsMap[p.id] = {
+        name: p.name,
+        clientName: p.clientName || null
+      };
     });
 
     // Get all existing tags
@@ -220,12 +218,12 @@ export async function processTravelTagging(startDate, endDate) {
         for (let i = 0; i < timeEntries.length; i++) {
           const entry = timeEntries[i];
           const entryStartTime = new Date(entry.timeInterval.start);
-          const projectName = projectsMap[entry.projectId];
+          const projectInfo = projectsMap[entry.projectId];
 
           // Only process travel entries that fall within the original target date range
-          if (isTravelProject(projectName) && entryStartTime >= startDate && entryStartTime <= endDate) {
+          if (isTravelProject(projectInfo) && entryStartTime >= startDate && entryStartTime <= endDate) {
             summary.travelEntriesFound++;
-            console.log(`[travel-tagger] Found travel entry for ${user.name}: ${projectName} (ID: ${entry.id})`);
+            console.log(`[travel-tagger] Found travel entry for ${user.name}: ${projectInfo.name} (Client: ${projectInfo.clientName}, ID: ${entry.id})`);
 
             // Find which project to tag with
             const tagProjectName = findProjectToTag(timeEntries, i, projectsMap);
