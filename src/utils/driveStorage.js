@@ -3,6 +3,7 @@
 // ARCHITECTURAL PRINCIPLE: Drive is the source of truth, NOT local files
 
 import { google } from 'googleapis';
+import { Readable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 
@@ -94,7 +95,7 @@ export async function saveToDrive(fileKey, data) {
 
     const media = {
       mimeType: 'application/json',
-      body: require('stream').Readable.from([buffer])
+      body: Readable.from([buffer])
     };
 
     let response;
