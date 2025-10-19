@@ -1,18 +1,12 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-import { backupTemplates } from '../utils/driveBackup.js';
+// src/db/templates.js
+// ARCHITECTURAL PRINCIPLE: Google Drive is the PRIMARY database
+// Local files are NOT used - all reads/writes go directly to Drive
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const DATA_DIR = join(__dirname, '../../data');
-const FILE = join(DATA_DIR, 'templates.json');
+import { loadFromDrive, saveToDrive } from '../utils/driveStorage.js';
 
 async function load(){
   try{
-    const s = await readFile(FILE, 'utf8');
-    const data = JSON.parse(s);
+    const data = await loadFromDrive('templates', { byProjectId: {} });
     if (!data || typeof data !== 'object') return { byProjectId: {} };
     data.byProjectId = data.byProjectId || {};
     return data;
@@ -22,10 +16,7 @@ async function load(){
 }
 
 async function save(data){
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(data, null, 2), 'utf8');
-  // Auto-backup to Google Drive
-  backupTemplates().catch(e => console.error('[templates] Backup failed:', e.message));
+  await saveToDrive('templates', data);
 }
 
 export async function getTemplateForProject(projectId){

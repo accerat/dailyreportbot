@@ -1,14 +1,8 @@
+// src/db/store.js
+// ARCHITECTURAL PRINCIPLE: Google Drive is the PRIMARY database
+// Local files are NOT used - all reads/writes go directly to Drive
 
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-import { backupStore } from '../utils/driveBackup.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const DATA_FILE = join(__dirname, '../../data/store.json');
-//CHANGED DEFAULTSTATE 8/20 11:09pm 
-//const defaultState = { projects: [], daily_reports: [], trigger_events: [], reminder_log: [], missed_reports: [] };
+import { loadFromDrive, saveToDrive } from '../utils/driveStorage.js';
 
 const defaultState = {
   settings: {
@@ -16,7 +10,7 @@ const defaultState = {
     uhc_forum_id: null,
     non_uhc_category_id: null,
     uhc_category_id: null,
-    project_category_id: null   // <— NEW single-category slot
+    project_category_id: null
   },
   projects: [],
   daily_reports: [],
@@ -27,18 +21,17 @@ const defaultState = {
   escalation_4hour_log: []
 };
 
+// Core database operations - all use Drive as source of truth
+export async function load() {
+  return await loadFromDrive('store', defaultState);
+}
 
-
-async function ensureFile(){ try{ await mkdir(dirname(DATA_FILE),{recursive:true}); await readFile(DATA_FILE,'utf-8'); }catch{ await writeFile(DATA_FILE, JSON.stringify(defaultState,null,2)); } }
-export async function load(){ await ensureFile(); return JSON.parse(await readFile(DATA_FILE,'utf-8')); }
-export async function save(s){
-  await writeFile(DATA_FILE, JSON.stringify(s,null,2));
-  // Auto-backup to Google Drive
-  backupStore().catch(e => console.error('[store] Backup failed:', e.message));
+export async function save(s) {
+  await saveToDrive('store', s);
   return s;
 }
 
-
+// All other functions remain the same - they use load() and save()
 export async function updateProjectFields(id, fields){
   const s = await load();
   const idx = (s.projects||[]).findIndex(p=>p.id===id);
@@ -71,14 +64,10 @@ export async function projectsNeedingReminder(ctHour, today) {
     return (s.reminder_log || []).some(l => l.project_id === pid && l.ct_date === d && l.ct_hour === h);
   }
   function getReminderHour(p){
-    // Check for reminder_time (format: "19:00") or reminder_start_ct (format: "08:00")
     const timeStr = p.reminder_time || p.reminder_start_ct;
     if (!timeStr) return null;
-
-    // Parse hour from "HH:MM" format
     const match = String(timeStr).match(/^(\d{1,2}):(\d{2})$/);
     if (!match) return null;
-
     return parseInt(match[1], 10);
   }
 
@@ -86,15 +75,11 @@ export async function projectsNeedingReminder(ctHour, today) {
     if (p.paused) return false;
     if (p.reminder_active === false) return false;
     if (alreadyReminded(p.id, today, ctHour)) return false;
-
-    // If daily_reports_start_date is set and is in the future, don't send reminder yet
     if (p.daily_reports_start_date && p.daily_reports_start_date > today) return false;
 
-    // Check if this hour matches the project's configured reminder time
     const reminderHour = getReminderHour(p);
     if (reminderHour !== null && reminderHour !== ctHour) return false;
 
-    // core rules
     const status = normStatus(p.status);
     const inProgress = status === 'in_progress';
     const started = (p.start_date || firstReportDate(p.id) || null) ? ((p.start_date || firstReportDate(p.id)) <= today) : false;
@@ -107,21 +92,52 @@ export async function projectsNeedingReminder(ctHour, today) {
     return false;
   });
 }
+
 export async function getProjectByThread(id){ const s=await load(); return s.projects.find(p=>p.thread_channel_id===id)||null; }
-export async function insertDailyReport(r){ const s=await load(); const id=(s.daily_reports.at(-1)?.id||0)+1; const row={id,...r}; s.daily_reports.push(row); const p=s.projects.find(x=>x.id===r.project_id); if(p&&r.percent_complete===100&&!p.completed_at){p.completed_at=r.report_date;} await save(s); return row; }
+
+export async function insertDailyReport(r){
+  const s=await load();
+  const id=(s.daily_reports.at(-1)?.id||0)+1;
+  const row={id,...r};
+  s.daily_reports.push(row);
+  const p=s.projects.find(x=>x.id===r.project_id);
+  if(p&&r.percent_complete===100&&!p.completed_at){p.completed_at=r.report_date;}
+  await save(s);
+  return row;
+}
+
 export async function countReportsUpTo(pid, d){ const s=await load(); return s.daily_reports.filter(r=>r.project_id===pid && r.report_date<=d).length; }
 export async function hasReportOn(pid,d){ const s=await load(); return s.daily_reports.some(r=>r.project_id===pid && r.report_date===d); }
-export async function logReminder(pid, d, h){ const s=await load(); if(s.reminder_log.some(x=>x.project_id===pid && x.ct_date===d && x.ct_hour===h)) return false; s.reminder_log.push({project_id:pid, ct_date:d, ct_hour:h}); await save(s); return true; }
 
-//replaced "projects needing reminder"
-//export async function latestReport(pid){ const s=await load(); const list=s.daily_reports.filter(r=>r.project_id===pid).sort((a,b)=> (a.report_date<b.report_date?1:-1)); return list[0]||null; }
-export async function sumReportsInRange(pid, a, b){ const s=await load(); const inRange=s.daily_reports.filter(r=>r.project_id===pid && r.created_at>=a && r.created_at<b); const guys=inRange.reduce((t,r)=>t+(+r.man_count||0),0); const hours=inRange.reduce((t,r)=>t+(+r.man_hours||0),0); return {guys, hours}; }
+export async function logReminder(pid, d, h){
+  const s=await load();
+  if(s.reminder_log.some(x=>x.project_id===pid && x.ct_date===d && x.ct_hour===h)) return false;
+  s.reminder_log.push({project_id:pid, ct_date:d, ct_hour:h});
+  await save(s);
+  return true;
+}
+
+export async function sumReportsInRange(pid, a, b){
+  const s=await load();
+  const inRange=s.daily_reports.filter(r=>r.project_id===pid && r.created_at>=a && r.created_at<b);
+  const guys=inRange.reduce((t,r)=>t+(+r.man_count||0),0);
+  const hours=inRange.reduce((t,r)=>t+(+r.man_hours||0),0);
+  return {guys, hours};
+}
+
 export async function hadTrigger(pid, a, b, type){ const s=await load(); return s.trigger_events.some(t=>t.project_id===pid && t.type===type && t.created_at>=a && t.created_at<b); }
-export async function addMissedDay(pid, d){ const s=await load(); if(!s.missed_reports.some(m=>m.project_id===pid && m.ct_date===d)){ s.missed_reports.push({project_id:pid, ct_date:d}); await save(s); } }
+
+export async function addMissedDay(pid, d){
+  const s=await load();
+  if(!s.missed_reports.some(m=>m.project_id===pid && m.ct_date===d)){
+    s.missed_reports.push({project_id:pid, ct_date:d});
+    await save(s);
+  }
+}
+
 export async function countMissed(pid){ const s=await load(); return s.missed_reports.filter(m=>m.project_id===pid).length; }
 export async function allSummaryProjects(){ const s=await load(); return s.projects.filter(p=>!p.paused || (p.completed_at && p.track_in_summary!==false)); }
 
-//added exports
 export async function getSettings() {
   const s = await load();
   return s.settings || {};
@@ -150,10 +166,6 @@ export async function upsertProject(project) {
   return project;
 }
 
-// end added exports
-
-// added more exports
-
 export async function getReportById(id){
   const s = await load();
   return s.daily_reports.find(r => r.id === id) || null;
@@ -174,13 +186,11 @@ export async function updateReportTriggers(reportId, triggers, authorUserId){
   const r = s.daily_reports.find(x => x.id === reportId);
   if (!r) return null;
 
-  // de-dup and normalize
   const list = Array.isArray(triggers) ? [...new Set(triggers)] : [];
   r.triggers = list;
 
   const now = new Date().toISOString();
   for (const t of list) {
-    // record once per report/trigger
     const exists = s.trigger_events.some(e => e.report_id === r.id && e.type === t);
     if (!exists) {
       s.trigger_events.push({
@@ -195,7 +205,6 @@ export async function updateReportTriggers(reportId, triggers, authorUserId){
   await save(s);
   return r;
 }
-
 
 export async function logEvent({ project_id, type, author_user_id }) {
   const s = await load();
@@ -216,7 +225,7 @@ export async function countProjectEventsByType(projectId, type) {
   const s = await load();
   return (s.trigger_events || []).filter(e => e.project_id === projectId && e.type === type).length;
 }
-// v4 add — project status helpers (top-level)
+
 export async function setProjectStatusByThread(threadId, status) {
   const s = await load();
   const p = s.projects.find(x => x.thread_channel_id === threadId);
@@ -252,11 +261,9 @@ export async function reopenProjectByThread(threadId, { reopenedBy } = {}) {
   return p;
 }
 
-// Escalation tracking for 4-hour reminder escalations
 export async function shouldEscalate4Hour(pid, date) {
   const s = await load();
   s.escalation_4hour_log = s.escalation_4hour_log || [];
-  // Only escalate once per day
   return !s.escalation_4hour_log.some(e => e.project_id === pid && e.ct_date === date);
 }
 
@@ -271,11 +278,9 @@ export async function logEscalation4Hour(pid, date) {
   return false;
 }
 
-// Escalation tracking for 48-hour reminder escalations
 export async function shouldEscalate(pid, date) {
   const s = await load();
   s.escalation_log = s.escalation_log || [];
-  // Only escalate once per day
   return !s.escalation_log.some(e => e.project_id === pid && e.ct_date === date);
 }
 
@@ -289,5 +294,3 @@ export async function logEscalation(pid, date) {
   }
   return false;
 }
-
- // end added more exports
