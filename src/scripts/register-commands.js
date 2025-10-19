@@ -6,6 +6,7 @@ import * as adminBackfill from '../commands/adminBackfillMissed.js';
 import * as adminSetForums from '../commands/adminSetForums.js'; // optional legacy
 import * as adminSetProjectCategory from '../commands/adminSetProjectCategory.js'; // NEW
 import * as adminClockifyManualSync from '../commands/adminClockifyManualSync.js'; // NEW
+import * as adminTravelTag from '../commands/adminTravelTag.js'; // NEW
 
 const commands = [
   adminSummary.data,
@@ -13,7 +14,8 @@ const commands = [
   adminBackfill.data,
   adminSetForums.data,          // keep if you still want forum-level config
   adminSetProjectCategory.data,  // NEW
-  adminClockifyManualSync.data   // NEW
+  adminClockifyManualSync.data,  // NEW
+  adminTravelTag.data            // NEW
 ].map(c => c.toJSON());
 
 async function main() {
