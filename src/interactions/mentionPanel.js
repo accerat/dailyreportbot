@@ -158,9 +158,12 @@ export function wireInteractions(client){
       }
 
       if (i.isModalSubmit() && i.customId.startsWith('dr:submit:')){
+        // Defer reply immediately to prevent interaction timeout (Discord requires response within 3s)
+        await i.deferReply({ ephemeral: true });
+
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        if (!project) return i.editReply({ content: 'Project not found.' });
 
         const synopsis = i.fields.getTextInputValue('synopsis')?.trim();
         const pct = Number(i.fields.getTextInputValue('pct') || '0');
@@ -245,7 +248,7 @@ await store.updateProjectFields(project.id, {
           },
         }).catch(()=>{});
 
-        return i.reply({ content: 'Report submitted.', ephemeral: true });
+        return i.editReply({ content: 'Report submitted.' });
       }
 
       
@@ -329,6 +332,9 @@ await store.updateProjectFields(project.id, {
       }
 
       if (i.isModalSubmit() && i.customId.startsWith('tmpl:save:')){
+  // Defer reply immediately to prevent interaction timeout (Discord requires response within 3s)
+  await i.deferReply({ ephemeral: true });
+
   const pid = Number(i.customId.split(':').pop());
   const body = (i.fields.getTextInputValue('tmpl_body') || '').trim();
   const startRaw = (i.fields.getTextInputValue('tmpl_start') || '').trim();
@@ -338,7 +344,7 @@ await store.updateProjectFields(project.id, {
 
   if (body.length === 0 && startRaw.length === 0 && endRaw.length === 0 && timeRaw.length === 0 && foremanRaw.length === 0){
     await templates.clearTemplateForProject(pid);
-    return i.reply({ content: 'Template cleared (empty).', ephemeral: true });
+    return i.editReply({ content: 'Template cleared (empty).' });
   } else {
     await templates.setTemplateForProject(pid, {
       body,
@@ -379,7 +385,7 @@ await store.updateProjectFields(project.id, {
       await store.updateProjectFields(pid, updates);
     }
 
-    return i.reply({ content: 'Template saved.', ephemeral: true });
+    return i.editReply({ content: 'Template saved.' });
   }
 
       }
@@ -614,9 +620,12 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
       // Arrival confirmation modal submission handler
       if (i.isModalSubmit() && i.customId.startsWith('arrival:submit:')){
+        // Defer reply immediately to prevent interaction timeout (Discord requires response within 3s)
+        await i.deferReply({ ephemeral: true });
+
         const pid = Number(i.customId.split(':').pop());
         const project = await store.getProjectById(pid);
-        if (!project) return i.reply({ content: 'Project not found.', ephemeral: true });
+        if (!project) return i.editReply({ content: 'Project not found.' });
 
         const isNextProject = (i.fields.getTextInputValue('is_next_project') || '').trim().toLowerCase();
         const arrivingNextNight = (i.fields.getTextInputValue('arriving_next_night') || '').trim().toLowerCase();
@@ -656,7 +665,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
 
           if (thread) await thread.send({ embeds: [confirmEmbed] });
 
-          return i.reply({ content: `Arrival confirmed! Daily reports will start on ${dailyReportsStart}.`, ephemeral: true });
+          return i.editReply({ content: `Arrival confirmed! Daily reports will start on ${dailyReportsStart}.` });
         } else {
           // Some answers are "no" - flag and notify office, but still confirmed
           const issues = [];
@@ -702,7 +711,7 @@ return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`
             }
           }
 
-          return i.reply({ content: `Pre-arrival confirmation submitted with issues. The office has been notified. Daily reports will start on ${dailyReportsStart}.`, ephemeral: true });
+          return i.editReply({ content: `Pre-arrival confirmation submitted with issues. The office has been notified. Daily reports will start on ${dailyReportsStart}.` });
         }
       }
     }catch(e){
