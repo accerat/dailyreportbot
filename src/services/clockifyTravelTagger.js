@@ -202,6 +202,14 @@ export async function processTravelTagging(startDate, endDate) {
     const users = await getWorkspaceUsers();
     console.log(`[travel-tagger] Found ${users.length} active users`);
 
+    // Debug: Check if specific user exists
+    const martinUser = users.find(u => u.name && u.name.includes('MARTIN JOSE ANTONIO'));
+    if (martinUser) {
+      console.log(`[travel-tagger] Found MARTIN JOSE ANTONIO: ${martinUser.id}, status: ${martinUser.status}`);
+    } else {
+      console.log(`[travel-tagger] MARTIN JOSE ANTONIO not found in active users list`);
+    }
+
     const summary = {
       usersProcessed: 0,
       travelEntriesFound: 0,
