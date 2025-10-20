@@ -182,6 +182,12 @@ export async function processTravelTagging(startDate, endDate) {
     console.log(`[travel-tagger] Found ${travelProjects.length} projects with 'travel' in name:`,
       travelProjects.map(p => `"${p.name}" (client: ${p.client || 'NONE'})`).join(', '));
 
+    // Check if there's a project called exactly "Travel"
+    const travelExact = projects.find(p => p.name.toLowerCase() === 'travel');
+    if (travelExact) {
+      console.log(`[travel-tagger] Found exact "Travel" project: client="${travelExact.clientName || 'NONE'}", id=${travelExact.id}`);
+    }
+
     // Get all existing tags
     const existingTags = await getWorkspaceTags();
     const tagsByName = {};
@@ -227,6 +233,12 @@ export async function processTravelTagging(startDate, endDate) {
           const entry = timeEntries[i];
           const entryStartTime = new Date(entry.timeInterval.start);
           const projectInfo = projectsMap[entry.projectId];
+
+          // Debug: log ALL entries with travel client
+          if (projectInfo && projectInfo.clientName && projectInfo.clientName.toLowerCase() === 'travel') {
+            const inRange = entryStartTime >= startDate && entryStartTime <= endDate;
+            console.log(`[travel-tagger] DEBUG: ${user.name} - ${projectInfo.name}, start=${entryStartTime.toISOString()}, inRange=${inRange}`);
+          }
 
           // Only process travel entries that fall within the original target date range
           if (isTravelProject(projectInfo) && entryStartTime >= startDate && entryStartTime <= endDate) {
