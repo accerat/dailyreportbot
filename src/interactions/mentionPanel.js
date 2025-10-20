@@ -124,13 +124,18 @@ function parseFromSynopsis(text){
 }
 
 async function showPanel(msg, project){
+  console.log(`[showPanel] CALLED - Project: ${project.id}, Foreman: ${project.foreman_display}, Time: ${project.reminder_time}`);
   const embed = buildProjectPanelEmbed(project);
   const row1 = rowMain(project);
   const rows = [row1].filter(r => r && r.components && r.components.length >= 1 && r.components.length <= 5);
   try{
+    console.log(`[showPanel] Attempting msg.reply for project ${project.id}`);
     await msg.reply({ embeds: [embed], components: rows });
-  }catch{
+    console.log(`[showPanel] msg.reply SUCCESS for project ${project.id}`);
+  }catch(e){
+    console.log(`[showPanel] msg.reply FAILED, using channel.send for project ${project.id}:`, e.message);
     await msg.channel.send({ embeds: [embed], components: rows });
+    console.log(`[showPanel] channel.send SUCCESS for project ${project.id}`);
   }
 }
 
@@ -140,11 +145,14 @@ export function wireInteractions(client){
       if (msg.author.bot) return;
       if (!msg.mentions.has(client.user)) return;
       const channel = msg.channel;
+      console.log(`[mentionPanel] Mention received in thread: ${channel.id}`);
       if (!channel.isThread()) {
         return msg.reply({ content: 'Please mention me **inside a project thread**.' });
       }
       const project = await ensureProject(channel);
+      console.log(`[mentionPanel] Project loaded: ID=${project.id}, Name=${project.name}, Foreman=${project.foreman_display}, Time=${project.reminder_time}`);
       await showPanel(msg, project);
+      console.log(`[mentionPanel] Panel shown for project ID=${project.id}`);
     }catch(e){ console.error('panel mention error', e); }
   });
 

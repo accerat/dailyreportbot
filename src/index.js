@@ -17,7 +17,6 @@ import { wireInteractions } from './interactions/mentionPanel.js';
 import './jobs/reminders.js';
 import './jobs/noonSummary.js';
 import './jobs/midnightMissed.js';
-import './jobs/travelTagging.js';
 import { startAutoStartJob } from './jobs/autoStart.js';
 import { validateClockifyConfig } from './startup-guards.js';
 
@@ -28,7 +27,6 @@ import * as adminBackfill from './commands/adminBackfillMissed.js';
 import * as adminSetForums from './commands/adminSetForums.js';
 import * as adminSetProjectCategory from './commands/adminSetProjectCategory.js';
 import * as adminClockifyManualSync from './commands/adminClockifyManualSync.js';
-import * as adminTravelTag from './commands/adminTravelTag.js';
 
 export const client = new Client({
   intents: [
@@ -58,7 +56,6 @@ const commandMap = new Map([
   [adminSetForums.data.name, adminSetForums],
   [adminSetProjectCategory.data.name, adminSetProjectCategory],
   [adminClockifyManualSync.data.name, adminClockifyManualSync],
-  [adminTravelTag.data.name, adminTravelTag],
 ]);
 
 client.on(Events.InteractionCreate, async (interaction) => {

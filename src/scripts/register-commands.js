@@ -4,18 +4,16 @@ import * as adminSummary from '../commands/adminSummaryNow.js';
 import * as adminReminders from '../commands/adminRemindersNow.js';
 import * as adminBackfill from '../commands/adminBackfillMissed.js';
 import * as adminSetForums from '../commands/adminSetForums.js'; // optional legacy
-import * as adminSetProjectCategory from '../commands/adminSetProjectCategory.js'; // NEW
-import * as adminClockifyManualSync from '../commands/adminClockifyManualSync.js'; // NEW
-import * as adminTravelTag from '../commands/adminTravelTag.js'; // NEW
+import * as adminSetProjectCategory from '../commands/adminSetProjectCategory.js';
+import * as adminClockifyManualSync from '../commands/adminClockifyManualSync.js';
 
 const commands = [
   adminSummary.data,
   adminReminders.data,
   adminBackfill.data,
-  adminSetForums.data,          // keep if you still want forum-level config
-  adminSetProjectCategory.data,  // NEW
-  adminClockifyManualSync.data,  // NEW
-  adminTravelTag.data            // NEW
+  adminSetForums.data,
+  adminSetProjectCategory.data,
+  adminClockifyManualSync.data,
 ].map(c => c.toJSON());
 
 async function main() {
