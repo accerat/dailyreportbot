@@ -100,10 +100,13 @@ async function updateTimeEntryTags(userId, timeEntryId, tagIds, existingEntry) {
 }
 
 /**
- * Get all projects in the workspace
+ * Get all projects in the workspace (including archived)
  */
 async function getProjects() {
-  return clockifyRequest(`/workspaces/${CLOCKIFY_WORKSPACE_ID}/projects`);
+  // Get both active and archived projects
+  const activeProjects = await clockifyRequest(`/workspaces/${CLOCKIFY_WORKSPACE_ID}/projects?archived=false`);
+  const archivedProjects = await clockifyRequest(`/workspaces/${CLOCKIFY_WORKSPACE_ID}/projects?archived=true`);
+  return [...activeProjects, ...archivedProjects];
 }
 
 /**
