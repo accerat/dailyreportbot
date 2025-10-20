@@ -81,11 +81,11 @@ async function createTag(tagName) {
  * Update a time entry with tags
  */
 async function updateTimeEntryTags(userId, timeEntryId, tagIds, existingEntry) {
-  // Clockify requires PATCH with all required fields preserved
+  // Clockify API: PUT /workspaces/{workspaceId}/time-entries/{timeEntryId}
   return clockifyRequest(
-    `/workspaces/${CLOCKIFY_WORKSPACE_ID}/user/${userId}/time-entries/${timeEntryId}`,
+    `/workspaces/${CLOCKIFY_WORKSPACE_ID}/time-entries/${timeEntryId}`,
     {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify({
         start: existingEntry.timeInterval.start,
         end: existingEntry.timeInterval.end,
