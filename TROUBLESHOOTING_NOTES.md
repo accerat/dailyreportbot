@@ -391,4 +391,13 @@ Travel tagging feature has been completely removed from production.
 - Line 475: `project = await store.getProjectById(pid);` (trying to reassign const)
 - This code tries to re-fetch the project after updating Clockify ID
 
-**Fix**: Change line 455 from `const project` to `let project` to allow reassignment
+**Fix Applied**:
+1. ✅ Change line 455 from `const project` to `let project` to allow reassignment
+2. ✅ Add `deferReply()` at start of status update handler (line 449)
+3. ✅ Change final `i.reply()` to `i.editReply()` (line 578)
+
+**Explanation**: Status updates take >3 seconds due to Drive saves and Clockify operations.
+Discord times out interactions that don't respond within 3 seconds, showing "interaction failed"
+even though the status IS actually updating successfully in the background.
+
+**Solution**: Defer the reply immediately, do heavy work, then edit the deferred reply.

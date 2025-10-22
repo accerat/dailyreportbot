@@ -446,6 +446,9 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
       }
 
       if (i.isStringSelectMenu() && i.customId.startsWith('status:set:')){
+        // Defer reply immediately to prevent Discord timeout (3 second limit)
+        await i.deferReply({ ephemeral: true });
+
         const pid = Number(i.customId.split(':').pop());
         const status = i.values[0];
         const oldProject = await store.getProjectById(pid);
@@ -575,7 +578,8 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
             await postExecutiveCompletionSummary(i.client, pid).catch(()=>{});
           }
         } catch {}
-return i.reply({ content: `Status updated to ${STATUS_LABEL[status] || status}.`, ephemeral: true });
+
+        return i.editReply({ content: `Status updated to ${STATUS_LABEL[status] || status}.` });
       }
 
       // Arrival confirmation button handler
