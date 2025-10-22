@@ -452,7 +452,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
         const oldStatus = oldProject?.status;
 
         await store.updateProjectFields(pid, { status });
-        const project = await store.getProjectById(pid);
+        let project = await store.getProjectById(pid);
         const channel = await i.client.channels.fetch(project.thread_channel_id);
 
         // Clockify integration - sync project and manage archive status
