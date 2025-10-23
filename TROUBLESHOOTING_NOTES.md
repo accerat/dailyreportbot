@@ -401,3 +401,59 @@ Discord times out interactions that don't respond within 3 seconds, showing "int
 even though the status IS actually updating successfully in the background.
 
 **Solution**: Defer the reply immediately, do heavy work, then edit the deferred reply.
+
+**Status**: ✅ RESOLVED - Deployed (commit cd6d307)
+
+---
+
+## NEW FEATURE REQUEST: AI Conversation Analysis for TaskBot (Oct 20, 2025)
+
+**User Request**: Add AI to TaskBot to answer questions about Discord thread conversations
+
+**Example Use Case**:
+- Thread: "Des Moines" (has a change order)
+- Query: "For the thread Des Moines, what were all the issues?"
+- Expected: AI scans entire thread conversation history and summarizes issues
+
+**Implementation Considerations**:
+1. **AI Provider**: Which AI service? (OpenAI GPT, Anthropic Claude, etc.)
+2. **Message Retrieval**: Fetch Discord thread message history
+3. **Context Window**: How many messages to include? (threads can be very long)
+4. **Query Interface**: Slash command? Mention bot? DM?
+5. **Permissions**: Who can query? Admins only or all users?
+6. **Cost Management**: AI API calls cost money per token
+
+**Next Steps**: Planning implementation approach...
+
+---
+
+## NEW ISSUES: Daily Report Submission & Admin Summary Broken (Oct 20, 2025)
+
+**Problem 1**: Daily report submission failing in non-UHC project "Reporty"
+- Channel ID: 1397270791175012453
+- Error: Unknown (user reports "there's an error")
+- Timing: After recent deployments (travel tag removal + defer fix)
+
+**Problem 2**: Admin-summary function not working
+- Likely related to same code changes
+
+**Root Cause Found**:
+```
+ExpectedConstraintError > s.string().lengthLessThanOrEqual()
+Expected: expected.length <= 45
+Received: 'Daily Report — Martin - Plastic Surgeon, Houston' (50 chars)
+```
+
+**Explanation**:
+- Discord modal titles have a **45 character limit**
+- Modal title format: `Daily Report — ${project.name}`
+- Projects with long names (like "Martin - Plastic Surgeon, Houston") exceed this limit
+- This causes the modal creation to fail with validation error
+
+**Fix Applied**:
+- Truncate project name in modal title to fit 45 char limit
+- Formula: `maxNameLength = 45 - 'Daily Report — '.length = 29 chars`
+- If name > 29 chars: `truncate to 28 chars + '…'`
+- Example: "Martin - Plastic Surgeon..." instead of full name
+
+**Note**: Admin summary issue likely same root cause (checking...)

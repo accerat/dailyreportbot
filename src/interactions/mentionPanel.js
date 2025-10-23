@@ -63,7 +63,15 @@ async function ensureProject(thread){
 }
 
 async function showReportModal(interaction, project){
-  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`Daily Report — ${project.name}`);
+  // Discord modal titles have 45 char limit. Truncate project name if needed.
+  const maxTitleLength = 45;
+  const prefix = 'Daily Report — ';
+  const maxNameLength = maxTitleLength - prefix.length; // 45 - 16 = 29
+  const truncatedName = project.name.length > maxNameLength
+    ? project.name.substring(0, maxNameLength - 1) + '…'
+    : project.name;
+
+  const modal = new ModalBuilder().setCustomId(`dr:submit:${project.id}`).setTitle(`${prefix}${truncatedName}`);
 
   const synopsis = new TextInputBuilder().setCustomId('synopsis').setLabel('Daily Summary').setStyle(TextInputStyle.Paragraph).setRequired(true);
   try {
