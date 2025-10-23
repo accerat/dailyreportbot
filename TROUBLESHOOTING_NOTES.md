@@ -457,3 +457,23 @@ Received: 'Daily Report — Martin - Plastic Surgeon, Houston' (50 chars)
 - Example: "Martin - Plastic Surgeon..." instead of full name
 
 **Note**: Admin summary issue likely same root cause (checking...)
+
+**Admin Summary Root Cause**:
+```
+Invalid Form Body
+content[BASE_TYPE_MAX_LENGTH]: Must be 2000 or fewer in length.
+```
+
+**Explanation**:
+- Admin summary creates a table with all active projects
+- Discord message content limited to **2000 characters**
+- With many projects, the table exceeds this limit
+- Error at line 186 in summary.js when sending the table
+
+**Fix Applied**:
+- Check if table length > 2000 chars
+- If yes: Split into multiple messages (max 1990 chars each to leave room for code blocks)
+- Preserve table structure by including header in first message only
+- Each subsequent message continues with ```diff code block
+
+**Note**: Still need to investigate the "you haven't done daily report" notification issue...

@@ -183,7 +183,40 @@ export async function postDailySummaryAll(clientParam) {
   const table = ['```diff', headerLine, sepLine, ...bodyLines, '```'].join('\n');
 
   await target.send({ content: title, allowedMentions: { parse: [] } });
-  await target.send({ content: table, allowedMentions: { parse: [] } });
+
+  // Discord has 2000 char limit. Split table if needed.
+  if (table.length <= 2000) {
+    await target.send({ content: table, allowedMentions: { parse: [] } });
+  } else {
+    // Split into multiple messages
+    const maxLength = 1990; // Leave room for code block markers
+    const lines = ['```diff', headerLine, sepLine, ...bodyLines];
+    let currentChunk = [];
+    let currentLength = 0;
+
+    for (const line of lines) {
+      const lineLength = line.length + 1; // +1 for newline
+      if (currentLength + lineLength > maxLength && currentChunk.length > 0) {
+        // Send current chunk
+        await target.send({
+          content: currentChunk.join('\n') + '\n```',
+          allowedMentions: { parse: [] }
+        });
+        currentChunk = ['```diff'];
+        currentLength = 9; // Length of ```diff\n
+      }
+      currentChunk.push(line);
+      currentLength += lineLength;
+    }
+
+    // Send remaining chunk
+    if (currentChunk.length > 1) {
+      await target.send({
+        content: currentChunk.join('\n') + '\n```',
+        allowedMentions: { parse: [] }
+      });
+    }
+  }
 
   return rows.length;
 }
