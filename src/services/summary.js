@@ -195,18 +195,26 @@ export async function postDailySummaryAll(clientParam) {
       pad(String(r.anticipated), widths[4])
     ].join('  ');
 
-    // Red (-) for past due, add 🟡 emoji for stale (no report 24h)
+    // Add red exclamation for past due date
+    let displayLine = line;
     if (r.pastDue) {
-      return '- ' + line; // Red: past end date, not complete/leaving
-    } else if (r.stale) {
-      return '  🟡 ' + line.trim(); // White text with yellow emoji: no report in 24h
+      displayLine = '❗ ' + line.trim();
+    }
+
+    // Green (+) if daily done, Red (-) if no daily done
+    if (r.stale) {
+      return '- ' + displayLine; // Red: No daily report done
     } else {
-      return '  ' + line; // White: normal
+      return '+ ' + displayLine; // Green: Daily report completed
     }
   });
 
   const title = `📊 ${todayISO} — Project Daily Summary`;
   const table = ['```diff', headerLine, sepLine, ...bodyLines, '```'].join('\n');
+
+  const legend = `**Legend:**
+🟢 Health 5/5  |  🟡 Health 2-4/5  |  🔴 Health 1/5
+❗ Past end date  |  🔴 Red = No daily report  |  🟢 Green = Daily report done`;
 
   await target.send({ content: title, allowedMentions: { parse: [] } });
 
@@ -243,6 +251,9 @@ export async function postDailySummaryAll(clientParam) {
       });
     }
   }
+
+  // Send legend at the end
+  await target.send({ content: legend, allowedMentions: { parse: [] } });
 
   return rows.length;
 }

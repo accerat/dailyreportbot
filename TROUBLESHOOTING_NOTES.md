@@ -617,10 +617,20 @@ From `constants/status.js` line 10:
 - Problem: In Discord diff syntax, `!` is NOT yellow - it's green (added line)
 - Solution: Can't use syntax highlighting for yellow (diff only has red/green)
 - Instead: Add 🟡 yellow emoji at start of stale project lines
-- New format:
-  - Red line (-): Past due date, not complete/leaving
-  - Yellow emoji (🟡): No report in 24h (stale)
-  - White (no prefix): Normal, up to date
+**User Decision - New Highlighting System**:
+Instead of yellow, use this 3-color system:
+1. **Red (-)**: No daily report done (stale/overdue for report)
+2. **Green (+)**: Daily report completed (up to date)
+3. **Red exclamation (❗)**: Past end date (not complete/leaving)
+4. Add **legend/key at bottom** explaining all symbols
+
+**Symbols to explain in key**:
+- Green circle (🟢): Health score 5/5
+- Red circle (🔴): Health score 1/5
+- Yellow circle (🟡): Health score 2-4/5
+- Red exclamation (❗): Past end date
+- Red highlight (-): No daily report
+- Green highlight (+): Daily report done
 
 **Note on Edit Failures**:
 - First edit attempt failed because I tried to replace "**Status**: Implementing changes..."
