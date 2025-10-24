@@ -109,6 +109,7 @@ export async function postDailySummaryAll(clientParam) {
   const client = clientParam || global.client;
   const target = await resolveTargetChannel(client);
   const todayISO = DateTime.now().setZone(CT).toISODate();
+  const currentTime = DateTime.now().setZone(CT);
 
   // Fetch projects
   let projects = [];
@@ -137,7 +138,7 @@ export async function postDailySummaryAll(clientParam) {
     // Display "In Progress" for projects past start date (instead of "Upcoming")
     if (status === 'Upcoming' && p.start_date) {
       const startDate = DateTime.fromISO(p.start_date, { zone: CT });
-      if (startDate.isValid && startDate <= now) {
+      if (startDate.isValid && startDate <= currentTime) {
         status = 'In Progress';
       }
     }
