@@ -195,11 +195,11 @@ export async function postDailySummaryAll(clientParam) {
       pad(String(r.anticipated), widths[4])
     ].join('  ');
 
-    // Red (-) for past due, Yellow (!) for stale (no report 24h), white for normal
+    // Red (-) for past due, add 🟡 emoji for stale (no report 24h)
     if (r.pastDue) {
       return '- ' + line; // Red: past end date, not complete/leaving
     } else if (r.stale) {
-      return '! ' + line; // Yellow: no report in 24h
+      return '  🟡 ' + line.trim(); // White text with yellow emoji: no report in 24h
     } else {
       return '  ' + line; // White: normal
     }

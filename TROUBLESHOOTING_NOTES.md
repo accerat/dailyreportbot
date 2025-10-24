@@ -601,7 +601,26 @@ From `constants/status.js` line 10:
 - Error: `ReferenceError: now is not defined` at summary.js:140
 - Cause: Used `now` variable inside async map function, but it's out of scope
 - Fix: Capture `now` as `currentTime` in closure before the map
-- Deploying fix...
+- ✅ Fixed line 156 (pastDue check)
+- ✅ Fixed line 140 (startDate check) - applied directly on AWS
+- Deployed: Commit 8b97eec + hotfix
+- **Still failing** - Error: `currentTime is not defined` at line 140
+- Problem: Hotfix changed `now` → `currentTime` but didn't define `currentTime`
+- Fix: Insert `const currentTime = DateTime.now().setZone(CT);` before the map (line 128)
+- Applied via sed on AWS directly...
+- ✅ **Admin-summary now working!**
+
+**New Issue**: Projects with ! prefix showing GREEN instead of YELLOW
+- Spring TX and Design within reach both have ! prefix
+- Expected: Yellow highlighting (no report 24h)
+- Actual: GREEN highlighting in Discord
+- Problem: In Discord diff syntax, `!` is NOT yellow - it's green (added line)
+- Solution: Can't use syntax highlighting for yellow (diff only has red/green)
+- Instead: Add 🟡 yellow emoji at start of stale project lines
+- New format:
+  - Red line (-): Past due date, not complete/leaving
+  - Yellow emoji (🟡): No report in 24h (stale)
+  - White (no prefix): Normal, up to date
 
 **Note on Edit Failures**:
 - First edit attempt failed because I tried to replace "**Status**: Implementing changes..."
