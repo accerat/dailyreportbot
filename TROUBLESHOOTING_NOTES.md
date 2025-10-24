@@ -595,7 +595,13 @@ From `constants/status.js` line 10:
 - Removed check for old 'started' and 'on_hold' statuses
 - Now only skips stale flagging for 'upcoming' projects
 
-**Ready to commit and test!**
+**Deployed**: Commit 685496e
+
+**Testing Issue**: Admin-summary command failed with "sorry, something went wrong"
+- Error: `ReferenceError: now is not defined` at summary.js:140
+- Cause: Used `now` variable inside async map function, but it's out of scope
+- Fix: Capture `now` as `currentTime` in closure before the map
+- Deploying fix...
 
 **Note on Edit Failures**:
 - First edit attempt failed because I tried to replace "**Status**: Implementing changes..."

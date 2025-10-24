@@ -153,7 +153,7 @@ export async function postDailySummaryAll(clientParam) {
     const endDate = anticipated !== '—' ? parseMDY(anticipated) : null;
     if (endDate) {
       const endDT = DateTime.fromISO(endDate, { zone: CT });
-      if (endDT.isValid && endDT < now && statusKey !== 'complete_no_gobacks' && statusKey !== 'leaving_incomplete') {
+      if (endDT.isValid && endDT < currentTime && statusKey !== 'complete_no_gobacks' && statusKey !== 'leaving_incomplete') {
         pastDue = true;
       }
     }
