@@ -444,8 +444,7 @@ if (i.isButton() && i.customId.startsWith('panel:foreman:')){
           .setCustomId(`status:set:${pid}`)
           .setPlaceholder('Select status')
           .addOptions([
-            { label: STATUS_LABEL[STATUS.STARTED], value: STATUS.STARTED },
-            { label: STATUS_LABEL[STATUS.ON_HOLD], value: STATUS.ON_HOLD },
+            { label: STATUS_LABEL[STATUS.UPCOMING], value: STATUS.UPCOMING },
             { label: STATUS_LABEL[STATUS.IN_PROGRESS], value: STATUS.IN_PROGRESS },
             { label: STATUS_LABEL[STATUS.LEAVING_INCOMPLETE], value: STATUS.LEAVING_INCOMPLETE },
             { label: STATUS_LABEL[STATUS.COMPLETE_NO_GOBACKS], value: STATUS.COMPLETE_NO_GOBACKS },

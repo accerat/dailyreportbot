@@ -50,8 +50,8 @@ async function missedTodayFlag(project, todayISO) {
 
   const statusKey = normalizeStatus(project.status);
 
-  // Never highlight "Upcoming" or "On Hold" projects as red
-  if (statusKey === 'started' || statusKey === 'on_hold') {
+  // Never highlight "Upcoming" projects as stale
+  if (statusKey === 'upcoming') {
     return { stale: false, lastText, healthVal, healthCell };
   }
 
@@ -130,9 +130,17 @@ export async function postDailySummaryAll(clientParam) {
     const latest = await latestReportFor(p.id);
     const foreman = p.foreman_display || latest?.foreman_display || '—';
     const statusKey = normalizeStatus(p.status);
-    const status = STATUS_LABEL[statusKey] || STATUS_LABEL.started;
+    let status = STATUS_LABEL[statusKey] || STATUS_LABEL.started;
     const start = p.start_date || '—';
     const anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
+
+    // Display "In Progress" for projects past start date (instead of "Upcoming")
+    if (status === 'Upcoming' && p.start_date) {
+      const startDate = DateTime.fromISO(p.start_date, { zone: CT });
+      if (startDate.isValid && startDate <= now) {
+        status = 'In Progress';
+      }
+    }
 
     const healthVal = Number(latest?.health_score);
     const hemoji = Number.isFinite(healthVal) ? healthEmoji(Math.max(1, Math.min(5, healthVal))) : '';
@@ -140,7 +148,17 @@ export async function postDailySummaryAll(clientParam) {
 
     const { stale } = await missedTodayFlag(p, todayISO);
 
-    return { name, status, foreman, start, anticipated, stale };
+    // Check if project is past end date and not complete/leaving
+    let pastDue = false;
+    const endDate = anticipated !== '—' ? parseMDY(anticipated) : null;
+    if (endDate) {
+      const endDT = DateTime.fromISO(endDate, { zone: CT });
+      if (endDT.isValid && endDT < now && statusKey !== 'complete_no_gobacks' && statusKey !== 'leaving_incomplete') {
+        pastDue = true;
+      }
+    }
+
+    return { name, status, foreman, start, anticipated, stale, pastDue };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End'];
@@ -176,7 +194,15 @@ export async function postDailySummaryAll(clientParam) {
       pad(String(r.start), widths[3]),
       pad(String(r.anticipated), widths[4])
     ].join('  ');
-    return r.stale ? ('- ' + line) : ('  ' + line); // red line for stale via diff block
+
+    // Red (-) for past due, Yellow (!) for stale (no report 24h), white for normal
+    if (r.pastDue) {
+      return '- ' + line; // Red: past end date, not complete/leaving
+    } else if (r.stale) {
+      return '! ' + line; // Yellow: no report in 24h
+    } else {
+      return '  ' + line; // White: normal
+    }
   });
 
   const title = `📊 ${todayISO} — Project Daily Summary`;

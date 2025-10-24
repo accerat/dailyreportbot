@@ -476,4 +476,128 @@ content[BASE_TYPE_MAX_LENGTH]: Must be 2000 or fewer in length.
 - Preserve table structure by including header in first message only
 - Each subsequent message continues with ```diff code block
 
-**Note**: Still need to investigate the "you haven't done daily report" notification issue...
+**"You Haven't Done Daily Report" Notification Issue**:
+- User received DM from bot about Spring, TX project
+- Message: "We don't have today's report"
+- Context: User ran admin-summary command around the same time
+
+**DM Source Found**:
+- Location: `src/jobs/remindersRuntime.js` line 51
+- Trigger: Hourly cron job (`src/jobs/reminders.js`) runs every hour
+- Message: `⏰ Daily Report Reminder — **${project.name}**\nWe don't have today's report (CT ${today}).`
+
+**Analysis**:
+- The DM was NOT triggered by admin-summary
+- It was **coincidental timing** - the hourly reminder cron ran at the same time
+- The reminder system checks `projectsNeedingReminder()` every hour
+- If project is in_progress/started and matches reminder_time hour, DM is sent
+- Spring, TX has reminder configured for that hour, so DM was sent
+
+**Conclusion**: Not a bug, just timing coincidence. The reminder system is working as intended.
+
+---
+
+## NEW ISSUE: Projects Stuck in "Upcoming" Status (Oct 23, 2025)
+
+**Problem**: Admin-summary shows projects with "Upcoming" status but start dates 20+ days ago
+
+**Examples from summary**:
+- Porter, TX - Start: 2025-10-04, Status: Upcoming (19 days ago)
+- Presque Isle, ME - Start: 2025-10-04, Status: Upcoming (19 days ago)
+- Apopka, FL - Start: 2025-10-04, Status: Upcoming (19 days ago)
+- Several others with start date 2025-10-04 still marked "Upcoming"
+
+**Expected Behavior**:
+- Projects should be "Upcoming" BEFORE start date
+- Once start date arrives, status should change to "Started" or "In Progress"
+- Projects 19 days past start date should NOT still be "Upcoming"
+
+**Possible Causes**:
+1. Manual status updates not happening (users not updating status)
+2. No automatic status transition from "Upcoming" → "Started" on start date
+3. Projects created with wrong initial status
+
+**Root Cause Found**:
+From `constants/status.js` line 10:
+```javascript
+[STATUS.STARTED]: 'Upcoming',  // status value = 'started', label = 'Upcoming'
+```
+
+**Analysis**:
+- Status value in database: `'started'`
+- Display label: "Upcoming"
+- This is **confusing labeling**, not incorrect data
+- Projects with start dates 19 days ago are in `'started'` status
+- The label "Upcoming" makes it LOOK like they haven't started yet
+- But technically they HAVE started - they're just not "In Progress" yet
+
+**Status Workflow**:
+1. `started` (labeled "Upcoming") - Project created, before or just after start date
+2. `in_progress` (labeled "In Progress") - Active work happening
+3. `leaving_incomplete` - Leaving before completion
+4. `complete_no_gobacks` - Finished
+5. `on_hold` - Paused
+
+**The Question**: Should the label be changed from "Upcoming" to something else?
+- Option 1: Change label to "Started" (matches the status value)
+- Option 2: Keep as-is (user understands workflow)
+- Option 3: Add automatic transition from 'started' → 'in_progress' on start date
+
+**User Decision**: Remove "started" status entirely
+
+**Desired Status List**:
+1. **Upcoming** - Before start date only
+2. **In Progress** - Active work (should auto-transition from Upcoming on start date)
+3. **Leaving & Incomplete** - Leaving before completion
+4. **Complete** - 100% done
+5. **On Hold** - Keep this? (User didn't mention, need to verify)
+
+**Required Changes**:
+1. Remove `STATUS.STARTED` from constants
+2. Change default status from 'started' to 'upcoming' (new value needed)
+3. Update all projects currently in 'started' status → 'in_progress'
+4. Add auto-transition: 'upcoming' → 'in_progress' on start date
+5. Update status dropdowns to not show "Started/Upcoming" option
+6. Update database migration to fix existing data
+
+**User Clarifications (Oct 23)**:
+1. ✅ Remove "On Hold" status too (would clash with "Leaving & Incomplete")
+2. ✅ Auto-display: Show "In Progress" if start_date is past (even if status='started')
+3. ✅ Red highlighting: Projects past end_date AND not complete/leaving
+4. ✅ Yellow highlighting: Projects without daily report in past 24h (changed from red)
+
+**Final 4 Statuses**:
+- Upcoming (before start date)
+- In Progress (active work)
+- Leaving & Incomplete
+- Complete (100% done)
+
+**Implementation Progress**:
+✅ Updated summary.js display logic:
+- Projects past start_date now show "In Progress" instead of "Upcoming"
+- Red highlighting (-) for projects past end_date (not complete/leaving)
+- Yellow highlighting (!) for projects without report in 24h (changed from red)
+
+✅ Updated status.js constants:
+- Added STATUS.UPCOMING = 'upcoming'
+- Removed STATUS.STARTED and STATUS.ON_HOLD
+- Updated normalizeStatus() to map old statuses → new ones
+- Default status now 'upcoming' instead of 'started'
+
+✅ Updated mentionPanel.js status dropdown:
+- Removed "Started" and "On Hold" options
+- Now shows: Upcoming, In Progress, Leaving & Incomplete, Complete
+
+✅ Updated reminder job (remindersRuntime.js):
+- Now checks for 'in_progress' and 'upcoming' (not old 'started' and 'on_hold')
+
+✅ Updated summary.js missedTodayFlag:
+- Removed check for old 'started' and 'on_hold' statuses
+- Now only skips stale flagging for 'upcoming' projects
+
+**Ready to commit and test!**
+
+**Note on Edit Failures**:
+- First edit attempt failed because I tried to replace "**Status**: Implementing changes..."
+- That string didn't exist - file actually ended with "**Next Steps**: Implement status consolidation..."
+- Always verify the exact string exists before editing

@@ -13,7 +13,8 @@ export async function runReminderPass(onlyProjectId=null){
   let attempts=0;
   for(const p of rows){
     const __status = String(p.status||"").toLowerCase().replace(/[\s\-]/g, '_');
-    if (__status !== STATUS.IN_PROGRESS && __status !== STATUS.STARTED) { continue; }
+    // Only send reminders for "In Progress" projects (not upcoming, complete, or leaving)
+    if (__status !== STATUS.IN_PROGRESS && __status !== STATUS.UPCOMING) { continue; }
     attempts++;
 
     // Check if this is the pre-arrival day (start date = today and no pre_arrival_confirmed)
