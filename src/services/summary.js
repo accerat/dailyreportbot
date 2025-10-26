@@ -50,11 +50,6 @@ async function missedTodayFlag(project, todayISO) {
 
   const statusKey = normalizeStatus(project.status);
 
-  // Never highlight "Upcoming" projects as stale
-  if (statusKey === 'upcoming') {
-    return { stale: false, lastText, healthVal, healthCell };
-  }
-
   // For "Leaving & Incomplete" status, check if there's a recent report
   if (statusKey === 'leaving_incomplete') {
     // Find when the status was changed to leaving_incomplete
@@ -148,7 +143,6 @@ export async function postDailySummaryAll(clientParam) {
 
     // Truncate project name to 15 chars max
     const projectName = p.name.length > 15 ? p.name.substring(0, 15) + '...' : p.name;
-    const name = `${hemoji} ${projectName}`.trim();
 
     const { stale } = await missedTodayFlag(p, todayISO);
 
@@ -167,7 +161,7 @@ export async function postDailySummaryAll(clientParam) {
       }
     }
 
-    return { name, status, foreman, start, anticipated, stale, pastDue };
+    return { name: projectName, status, foreman, start, anticipated, stale, pastDue, hemoji };
   }));
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End'];
@@ -204,11 +198,12 @@ export async function postDailySummaryAll(clientParam) {
       pad(String(r.anticipated), widths[4])
     ].join('  ');
 
-    // Add red exclamation for past due date
-    let displayLine = line;
-    if (r.pastDue) {
-      displayLine = '❗ ' + line.trim();
-    }
+    // Add emojis at the end for alignment
+    let emojis = '';
+    if (r.hemoji) emojis += ' ' + r.hemoji;
+    if (r.pastDue) emojis += ' ❗';
+
+    const displayLine = line + emojis;
 
     // Red (-) if no daily done, no prefix if daily done
     if (r.stale) {
