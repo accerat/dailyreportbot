@@ -6,6 +6,7 @@ import * as adminBackfill from '../commands/adminBackfillMissed.js';
 import * as adminSetForums from '../commands/adminSetForums.js'; // optional legacy
 import * as adminSetProjectCategory from '../commands/adminSetProjectCategory.js';
 import * as adminClockifyManualSync from '../commands/adminClockifyManualSync.js';
+import * as adminOfficeAlerts from '../commands/adminOfficeAlertsNow.js';
 
 const commands = [
   adminSummary.data,
@@ -14,6 +15,7 @@ const commands = [
   adminSetForums.data,
   adminSetProjectCategory.data,
   adminClockifyManualSync.data,
+  adminOfficeAlerts.data,
 ].map(c => c.toJSON());
 
 async function main() {

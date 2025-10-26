@@ -632,6 +632,63 @@ Instead of yellow, use this 3-color system:
 - Red highlight (-): No daily report
 - Green highlight (+): Daily report done
 
+✅ **Deployed**: Commit 7aa14da - New highlighting system active!
+
+**New Issue - ReferenceError After Highlighting Deployment**:
+- User tested admin-summary and got "something went wrong" error
+- Error logs show: `ReferenceError: now is not defined` at summary.js:140
+- Root Cause: In the highlighting deployment (commit 7aa14da), I added code that uses `now` variable on line 140:
+  ```javascript
+  if (startDate.isValid && startDate <= now) {
+  ```
+- Problem: The `now` variable was never defined in the function scope
+- This was an oversight from the previous fix - I defined `currentTime` in line 112, but then introduced NEW code that used `now` instead of `currentTime`
+
+**Fix Applied**:
+1. Added `const currentTime = DateTime.now().setZone(CT);` after line 111
+2. Changed line 141 from `startDate <= now` to `startDate <= currentTime`
+3. Committed as f46b591
+4. Deployed to AWS and restarted PM2
+5. ✅ **Fix deployed and working!**
+
+**Colorblind Accessibility Update**:
+- User noted Keith is colorblind, requested removal of green highlighting
+- Changed system to only use red for problems:
+  - Red (-): No daily report submitted
+  - No prefix (plain text): Daily report completed
+  - Red ❗: Past end date
+- Updated legend to remove green references
+- Note: User rejected commit before deployment - still needs to be committed
+
+**Project Name Truncation**:
+- User requested project names be limited to 15 characters
+- If longer, truncate with "..."
+- Updated code to: `p.name.substring(0, 15) + '...'`
+- Also updated column width from 36 to 20 max
+
+**Stale Flag Issue**:
+- User reported "test channel" showing as green (not stale) even though no report in 24 hours
+- Added debug logging for projects with "test" in name to diagnose
+- Log outputs: project name, status, stale flag, last report date
+- Committed as 383c839
+- Deployed to AWS - waiting for user to test and review logs
+
+**Root Cause Identified - Upcoming Status Exception**:
+- User clarified: Projects past their anticipated end date were not showing as stale
+- Problem: Line 53-55 in summary.js had exception for "upcoming" status projects
+- This prevented reminders and stale flags for upcoming projects past their end date
+- User wants reminders to continue regardless of end date to force status updates
+
+**Fixes Applied (Commit 3126530)**:
+1. Removed "upcoming" status exception from missedTodayFlag function
+   - Now ALL projects without today's report show as stale (red)
+   - Forces proper status updates for projects past end date
+2. Fixed column alignment by moving emojis to end of line
+   - Health emoji and past-due emoji now at end instead of beginning
+   - All columns now align properly left-to-right
+3. Updated row return to include `hemoji` field separately
+4. ✅ Deployed to AWS
+
 **Note on Edit Failures**:
 - First edit attempt failed because I tried to replace "**Status**: Implementing changes..."
 - That string didn't exist - file actually ended with "**Next Steps**: Implement status consolidation..."
