@@ -145,9 +145,17 @@ export async function postDailySummaryAll(clientParam) {
 
     const healthVal = Number(latest?.health_score);
     const hemoji = Number.isFinite(healthVal) ? healthEmoji(Math.max(1, Math.min(5, healthVal))) : '';
-    const name = `${hemoji} ${p.name}`.trim();
+
+    // Truncate project name to 15 chars max
+    const projectName = p.name.length > 15 ? p.name.substring(0, 15) + '...' : p.name;
+    const name = `${hemoji} ${projectName}`.trim();
 
     const { stale } = await missedTodayFlag(p, todayISO);
+
+    // Debug logging for test channel
+    if (p.name.toLowerCase().includes('test')) {
+      console.log(`[DEBUG] Project: ${p.name}, Status: ${p.status}, Stale: ${stale}, Last report: ${latest?.report_date || 'none'}`);
+    }
 
     // Check if project is past end date and not complete/leaving
     let pastDue = false;
@@ -164,7 +172,7 @@ export async function postDailySummaryAll(clientParam) {
 
   const headers = ['Project', 'Status', 'Foreman', 'Start', 'Anticipated End'];
   const widths = [
-    Math.min(Math.max(headers[0].length, ...rows.map(r => String(r.name).length)), 36),
+    Math.min(Math.max(headers[0].length, ...rows.map(r => String(r.name).length)), 20), // Max 20 for project (15 chars + emoji + ...)
     Math.min(Math.max(headers[1].length, ...rows.map(r => String(r.status).length)), 24),
     Math.min(Math.max(headers[2].length, ...rows.map(r => String(r.foreman).length)), 18),
     Math.max(headers[3].length, ...rows.map(r => String(r.start).length)),
@@ -202,11 +210,11 @@ export async function postDailySummaryAll(clientParam) {
       displayLine = '❗ ' + line.trim();
     }
 
-    // Green (+) if daily done, Red (-) if no daily done
+    // Red (-) if no daily done, no prefix if daily done
     if (r.stale) {
       return '- ' + displayLine; // Red: No daily report done
     } else {
-      return '+ ' + displayLine; // Green: Daily report completed
+      return '  ' + displayLine; // No highlight: Daily report completed
     }
   });
 
@@ -215,7 +223,7 @@ export async function postDailySummaryAll(clientParam) {
 
   const legend = `**Legend:**
 🟢 Health 5/5  |  🟡 Health 2-4/5  |  🔴 Health 1/5
-❗ Past end date  |  🔴 Red = No daily report  |  🟢 Green = Daily report done`;
+❗ Past end date  |  🔴 Red highlight = No daily report submitted`;
 
   await target.send({ content: title, allowedMentions: { parse: [] } });
 
