@@ -1,4 +1,5 @@
 // src/commands/adminOfficeAlertsNow.js
+import { SlashCommandBuilder } from 'discord.js';
 import { DateTime } from 'luxon';
 import * as store from '../db/store.js';
 import { normalizeStatus, STATUS } from '../constants/status.js';
@@ -6,10 +7,9 @@ import { normalizeStatus, STATUS } from '../constants/status.js';
 const MLB_OFFICE_CHANNEL_ID = '1397271405606998036';
 const CT = 'America/Chicago';
 
-export const data = {
-  name: 'admin-office-alerts-now',
-  description: '[ADMIN] Run office alerts check immediately',
-};
+export const data = new SlashCommandBuilder()
+  .setName('admin-office-alerts-now')
+  .setDescription('[ADMIN] Run office alerts check immediately');
 
 export async function execute(interaction) {
   await interaction.deferReply({ ephemeral: true });
