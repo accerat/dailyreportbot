@@ -50,30 +50,9 @@ async function missedTodayFlag(project, todayISO) {
 
   const statusKey = normalizeStatus(project.status);
 
-  // For "Leaving & Incomplete" status, check if there's a recent report
+  // "Leaving & Incomplete" projects are never highlighted as stale
   if (statusKey === 'leaving_incomplete') {
-    // Find when the status was changed to leaving_incomplete
-    const statusChangeEvent = (ctx.trigger_events || [])
-      .filter(e => e.project_id === project.id && e.type === 'status:leaving_incomplete')
-      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
-      .at(-1);
-
-    if (statusChangeEvent && statusChangeEvent.created_at) {
-      const changeTime = DateTime.fromISO(statusChangeEvent.created_at);
-      const twelveHoursBefore = changeTime.minus({ hours: 12 });
-
-      // Check if any report was submitted within 12 hours before OR any time after the status change
-      const hasRecentReport = (ctx.daily_reports || [])
-        .filter(r => r.project_id === project.id && r.created_at)
-        .some(r => {
-          const reportTime = DateTime.fromISO(r.created_at);
-          return reportTime >= twelveHoursBefore; // 12 hours before or any time after
-        });
-
-      if (hasRecentReport) {
-        return { stale: false, lastText, healthVal, healthCell };
-      }
-    }
+    return { stale: false, lastText, healthVal, healthCell };
   }
 
   // Default: stale if last report is not today
@@ -128,7 +107,12 @@ export async function postDailySummaryAll(clientParam) {
     const statusKey = normalizeStatus(p.status);
     let status = STATUS_LABEL[statusKey] || STATUS_LABEL.started;
     const start = p.start_date || '—';
-    const anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
+
+    // "Leaving & Incomplete" projects don't show anticipated end date
+    let anticipated = '—';
+    if (statusKey !== 'leaving_incomplete') {
+      anticipated = (latest?.completion_date) || p.completion_date || p.anticipated_end || '—';
+    }
 
     // Display "In Progress" for projects past start date (instead of "Upcoming")
     if (status === 'Upcoming' && p.start_date) {
