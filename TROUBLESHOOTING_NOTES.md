@@ -689,6 +689,35 @@ Instead of yellow, use this 3-color system:
 3. Updated row return to include `hemoji` field separately
 4. ✅ Deployed to AWS
 
+**MLB Office Alerts Feature (Commits b395bae, 7ff0423)**:
+- User identified projects like "Pensacola FL" missing foreman/anticipated end data
+- This happened when templates were accidentally deleted during bot updates (before Oct 3)
+- User needs to go through and fix these manually
+- Requested automated alerts to catch these issues going forward
+
+**New Daily Alert System**:
+Created daily job that posts to MLB Office channel (ID: 1397271405606998036) at 1 PM CT:
+1. Alert for "In Progress" projects missing foreman or anticipated end date
+2. Alert for daily reports submitted on projects NOT "In Progress"
+
+**Files Created**:
+- `src/jobs/officeAlerts.js` - Scheduled cron job runs at 1 PM CT daily
+- `src/commands/adminOfficeAlertsNow.js` - Admin command to test alerts immediately
+- Updated `src/index.js` and `src/scripts/register-commands.js` to register new command
+- Fixed: Command needed SlashCommandBuilder instead of plain object (7ff0423)
+- ✅ Deployed and working!
+
+**"Leaving & Incomplete" Status Handling (Commit 39bb7f6)**:
+User requested special handling for projects with "Leaving & Incomplete" status:
+1. Hide anticipated end date (always show "—")
+2. Never highlight as red/stale (even without daily reports)
+
+**Changes Made**:
+- Updated anticipated end date logic to return "—" for leaving_incomplete status
+- Simplified missedTodayFlag function to always return `stale: false` for these projects
+- Removed complex 12-hour window check (no longer needed)
+- ✅ Deployed to AWS
+
 **Note on Edit Failures**:
 - First edit attempt failed because I tried to replace "**Status**: Implementing changes..."
 - That string didn't exist - file actually ended with "**Next Steps**: Implement status consolidation..."
